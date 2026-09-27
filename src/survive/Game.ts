@@ -179,6 +179,7 @@ export class Game {
   private lastShownDoc: GameDoc | null = null;
   private summonsT = 0;
   private warnedChase = false;
+  private dismountLostT = 0;
   private lastMx = 0;
   private lastMz = 0;
   private tmpLead = new THREE.Vector3();
@@ -437,7 +438,8 @@ export class Game {
   }
 
   private loadChapter(ch: ChapterId): void {
-    this.clearActors();
+    // minibus ride reuses the live city scene (van, officers, pedestrians)
+    if (ch !== 'minibus') this.clearActors();
     this.chapter = ch;
     this.audio.setChapterAmbience(ch);
     this.net.setLocal({ x: this.pos.x, y: this.pos.y, z: this.pos.z, ry: this.camYaw, anim: this.anim, speed: 0, chapter: ch, health: this.health });
@@ -456,6 +458,11 @@ export class Game {
       // van + officers + driver
       this.van = new VanAI(this.zone.route, this.zone.hotspots, this.scene);
       this.van.events.onHorn = () => this.audio.horn();
+      this.van.events.onDismount = () => {
+        this.officerState = 'exiting';
+        this.officerT = 0;
+        this.showMessage('Патрульные идут к вам…', 2.5);
+      };
       this.van.events.onDoorsOpened = () => {
         this.audio.doorVan();
         this.officerState = 'exiting';
@@ -515,7 +522,7 @@ export class Game {
               }
             };
             fp.events.onSpotted = () => {
-              if (!this.van || this.detained) return;
+              if (!this.van || this.detained || this.encounter === 'dialog' || this.encounter === 'struggle') return;
               this.audio.shout();
               this.showMessage('— Стояти! Документи!', 2.5);
               if (this.van.state === 'patrol' || this.van.state === 'notice' || this.van.state === 'stakeout') {
@@ -530,6 +537,7 @@ export class Game {
       this.objective = { title: 'Найдите документы', detail: 'Осмотрите район: дворы, гаражи, машины. [E] — взять', progress: `0/${this.zone.pickups.length}` };
     } else if (ch === 'minibus') {
       // keep city visuals (ride through the city)
+      this.ensureRideCast();
       this.detained = true;
       this.encounter = 'detained';
       this.rideT = 0;
@@ -592,6 +600,24 @@ export class Game {
     }
   }
 
+  /** Safety: the minibus chapter must always have a van + officers. */
+  private ensureRideCast(): void {
+    if (!this.zone) return;
+    if (!this.van) {
+      this.van = new VanAI(this.zone.route, this.zone.hotspots, this.scene);
+      this.van.pos.copy(this.pos);
+    }
+    while (this.officers.length < 2) {
+      const o = makeHumanoid('officer', 20 + this.officers.length, false);
+      this.scene.add(o.group);
+      this.officers.push(o);
+    }
+    if (!this.driver) {
+      this.driver = makeHumanoid('officer', 99, false);
+      this.scene.add(this.driver.group);
+    }
+  }
+
   private fadeTo(next: () => void): void {
     this.fade = 'out';
     this.fadeT = 0;
@@ -600,7 +626,7 @@ export class Game {
 
   // ================================================================ city flow
   private beginDialog(): void {
-    if (this.chapter !== 'city' || this.detained) return;
+    if (this.chapter !== 'city' || this.detained || this.encounter === 'dialog' || this.encounter === 'struggle') return;
     this.encounter = 'dialog';
     // officers keep their current state (exiting -> approach); UI shows at once
     this.dialogLines = [...DIALOG.greet];
@@ -1673,7 +1699,7 @@ export class Game {
     }
 
     // civilians
-    const danger = this.van.state === 'chase' || this.van.state === 'slow' ? this.van.pos : this.van.state === 'check' ? this.van.pos : null;
+    const danger = this.van.state === 'chase' || this.van.state === 'slow' || this.van.state === 'dismount' ? this.van.pos : this.van.state === 'check' ? this.van.pos : null;
     for (const c of this.civilians) c.update(dt, this.time, danger, this.gunshotCity, z.colliders);
     this.gunshotCity = false;
     for (const fp of this.footPatrols) fp.update(dt, this.time, this.pos, running, this.civilians, z.colliders);
@@ -1697,6 +1723,31 @@ export class Game {
     } else if (this.van.state === 'patrol' && this.encounter === 'suspicion' && this.officerState !== 'escort') {
       this.encounter = 'none';
       this.dialogLines = [];
+    }
+
+    // dismount: foot officers converge; talk when they reach the player
+    if (this.van.state === 'dismount' && !this.detained) {
+      if (this.encounter === 'none' || this.encounter === 'suspicion') {
+        for (const o of this.officers) {
+          if (o.group.visible && o.group.position.distanceTo(this.pos) < 2.4) {
+            this.beginDialog();
+            this.officerState = 'approach';
+            break;
+          }
+        }
+      }
+      if (vDist > 45) this.dismountLostT += dt;
+      else this.dismountLostT = 0;
+      if (this.dismountLostT > 8) {
+        this.dismountLostT = 0;
+        this.van.recall();
+        this.officerState = 'return';
+        this.encounter = 'none';
+        this.dialogLines = [];
+        this.showMessage('Патруль отстал. Затаитесь.', 3);
+      }
+    } else {
+      this.dismountLostT = 0;
     }
 
     // officers catch player during chase -> struggle
@@ -1725,7 +1776,7 @@ export class Game {
     if (this.van.state !== 'chase') this.warnedChase = false;
 
     // struggle QTE
-    if (this.encounter === 'struggle') {
+    if (this.encounter === 'struggle' && !this.detained) {
       this.struggleT -= dt;
       this.struggle = Math.max(0, this.struggle - dt * 0.22);
       this.shake = Math.min(1, this.shake + dt * 1.5);
@@ -1811,7 +1862,7 @@ export class Game {
         const tx = this.pos.x + Math.cos(this.time * 0.2) * 0 + side * 1.8;
         const tz = this.pos.z + 0.6 - i * 1.2;
         const d = Math.hypot(o.group.position.x - tx, o.group.position.z - tz);
-        if (d > 0.5) {
+        if (d > 1.1) {
           steerToward(o.group.position, this.tmpV.set(tx, 0, tz), 2.6, dt, z.colliders);
           o.setPose('walk', this.time + i, 0.8);
         } else {
@@ -1863,6 +1914,39 @@ export class Game {
         }
       });
       if (allIn) this.officerState = 'invan';
+    }
+    // separation so the pair never stacks inside each other
+    if (this.officers.length >= 2) {
+      const a = this.officers[0];
+      const b = this.officers[1];
+      if (a.group.visible && b.group.visible) {
+        const dx = b.group.position.x - a.group.position.x;
+        const dz = b.group.position.z - a.group.position.z;
+        const d = Math.hypot(dx, dz);
+        if (d < 0.9 && d > 0.001) {
+          const push = (0.9 - d) * 0.5;
+          const nx = dx / d;
+          const nz = dz / d;
+          a.group.position.x -= nx * push;
+          a.group.position.z -= nz * push;
+          b.group.position.x += nx * push;
+          b.group.position.z += nz * push;
+        }
+      }
+    }
+    // officers walk around the van instead of through it (except boarding)
+    const ost: string = this.officerState;
+    if (this.van && (ost === 'approach' || ost === 'dialog' || ost === 'escort')) {
+      for (const o of this.officers) {
+        if (!o.group.visible) continue;
+        const ox = o.group.position.x - this.van.pos.x;
+        const oz = o.group.position.z - this.van.pos.z;
+        const od = Math.hypot(ox, oz);
+        if (od < 2.3 && od > 0.001) {
+          o.group.position.x = this.van.pos.x + (ox / od) * 2.3;
+          o.group.position.z = this.van.pos.z + (oz / od) * 2.3;
+        }
+      }
     }
   }
 

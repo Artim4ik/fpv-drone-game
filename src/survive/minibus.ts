@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { resolveCollision, type BoxCollider } from './world';
 
-export type VanState = 'patrol' | 'stakeout' | 'notice' | 'slow' | 'stop' | 'doors' | 'check' | 'chase' | 'transport' | 'leave';
+export type VanState = 'patrol' | 'stakeout' | 'notice' | 'slow' | 'stop' | 'doors' | 'check' | 'dismount' | 'chase' | 'transport' | 'leave';
 
 export interface VanRig {
   group: THREE.Group;
@@ -252,6 +252,7 @@ export interface VanEvents {
   onGiveUp: () => void;
   onArrived: () => void;
   onHorn: () => void;
+  onDismount: () => void;
 }
 
 export class VanAI {
@@ -270,6 +271,15 @@ export class VanAI {
   stakeDur = 20;
   patrolT = 0;
   hornCd = 0;
+  reversing = 0;
+  stuckT = 0;
+  stuckCount = 0;
+  stuckDecay = 0;
+  prevX = 0;
+  prevZ = 0;
+  prevSpeed = 0;
+  lastTurn = 0;
+  dismountedFired = false;
   stateT = 0;
   doorT = 0;
   chaseT = 0;
@@ -285,6 +295,7 @@ export class VanAI {
     onGiveUp: () => undefined,
     onArrived: () => undefined,
     onHorn: () => undefined,
+    onDismount: () => undefined,
   };
 
   constructor(route: THREE.Vector3[], hotspots: THREE.Vector3[], parent: THREE.Object3D) {
@@ -292,6 +303,8 @@ export class VanAI {
     this.hotspots = hotspots.length > 0 ? hotspots : route;
     this.rig = buildMinibusMesh();
     this.pos = route.length > 0 ? route[0].clone() : new THREE.Vector3();
+    this.prevX = this.pos.x;
+    this.prevZ = this.pos.z;
     this.rig.group.position.copy(this.pos);
     parent.add(this.rig.group);
   }
@@ -300,6 +313,24 @@ export class VanAI {
   doorWorldPos(out: THREE.Vector3): THREE.Vector3 {
     out.set(1.4, 0, 0.55).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.yaw).add(this.pos);
     return out;
+  }
+
+  toDismount(): void {
+    if (this.state === 'dismount') return;
+    this.state = 'dismount';
+    this.stateT = 0;
+    this.doorT = 0;
+    this.dismountedFired = false;
+    this.stuckCount = 0;
+    this.reversing = 0;
+  }
+
+  recall(): void {
+    this.state = 'leave';
+    this.stateT = 0;
+    this.cooldown = 20;
+    this.stuckCount = 0;
+    this.reversing = 0;
   }
 
   startTransport(): void {
@@ -317,7 +348,7 @@ export class VanAI {
   }
 
   startChase(): void {
-    if (this.state === 'check' || this.state === 'doors' || this.state === 'stop') {
+    if (this.state === 'check' || this.state === 'doors' || this.state === 'stop' || this.state === 'dismount') {
       this.state = 'chase';
       this.stateT = 0;
       this.chaseT = 0;
@@ -474,6 +505,17 @@ export class VanAI {
         }
         break;
       }
+      case 'dismount': {
+        targetSpeed = 0;
+        rig.brakeOn = true;
+        this.doorT = Math.min(1, this.doorT + dt / 1.3);
+        rig.setDoor(this.doorT);
+        if (this.doorT >= 1 && !this.dismountedFired) {
+          this.dismountedFired = true;
+          this.events.onDismount();
+        }
+        break;
+      }
       case 'transport': {
         this.transportT += dt;
         targetSpeed = 11;
@@ -503,13 +545,22 @@ export class VanAI {
     }
 
     // --- drive ---
-    this.speed = THREE.MathUtils.lerp(this.speed, targetSpeed, 1 - Math.exp(-dt * 2.2));
-    if (steerTarget) {
+    if (this.reversing > 0) {
+      this.reversing -= dt;
+      this.yaw += dt * 0.9;
+      this.speed = THREE.MathUtils.lerp(this.speed, -4, 1 - Math.exp(-dt * 4));
+      this.pos.x += Math.sin(this.yaw) * this.speed * dt;
+      this.pos.z += Math.cos(this.yaw) * this.speed * dt;
+    } else {
+      this.speed = THREE.MathUtils.lerp(this.speed, targetSpeed, 1 - Math.exp(-dt * 2.2));
+    }
+    if (steerTarget && this.reversing <= 0) {
       const wantYaw = Math.atan2(steerTarget.x - this.pos.x, steerTarget.z - this.pos.z);
       let dy = wantYaw - this.yaw;
       while (dy > Math.PI) dy -= Math.PI * 2;
       while (dy < -Math.PI) dy += Math.PI * 2;
       const turn = THREE.MathUtils.clamp(dy * 2.2, -1.4, 1.4);
+      this.lastTurn = turn;
       this.yaw += turn * dt * Math.min(1, 0.3 + this.speed / 6);
       this.pos.x += Math.sin(this.yaw) * this.speed * dt;
       this.pos.z += Math.cos(this.yaw) * this.speed * dt;
@@ -520,15 +571,51 @@ export class VanAI {
     resolveCollision(this.pos, 1.6, colliders);
     this.pos.x = THREE.MathUtils.clamp(this.pos.x, -100, 100);
     this.pos.z = THREE.MathUtils.clamp(this.pos.z, -100, 100);
+    // stuck detection: reversing maneuver, then dismount / give up
+    const movedD = Math.hypot(this.pos.x - this.prevX, this.pos.z - this.prevZ);
+    this.prevX = this.pos.x;
+    this.prevZ = this.pos.z;
+    if (this.reversing <= 0 && targetSpeed > 2 && this.speed > 2.5 && movedD < this.speed * dt * 0.3) {
+      this.stuckT += dt;
+    } else if (this.reversing <= 0) {
+      this.stuckT = Math.max(0, this.stuckT - dt * 2);
+    }
+    if (this.stuckT > 2 && (this.state === 'slow' || this.state === 'chase' || this.state === 'patrol' || this.state === 'stakeout')) {
+      this.stuckT = 0;
+      this.stuckCount++;
+      this.reversing = 1.1;
+    }
+    this.stuckDecay += dt;
+    if (this.stuckDecay > 25) {
+      this.stuckDecay = 0;
+      this.stuckCount = 0;
+    }
+    if (this.state === 'slow' && (this.stuckCount >= 3 || this.stateT > 30)) {
+      this.toDismount();
+    } else if (this.state === 'chase' && this.stuckCount >= 4) {
+      this.state = 'leave';
+      this.stateT = 0;
+      this.cooldown = 30;
+      this.rig.setDoor(0);
+      this.stuckCount = 0;
+      this.events.onGiveUp();
+    } else if ((this.state === 'patrol' || this.state === 'stakeout') && this.stuckCount >= 4) {
+      this.stuckCount = 0;
+      this.routeIdx = (this.routeIdx + 1) % this.route.length;
+    }
 
     // --- visuals ---
     rig.group.position.copy(this.pos);
     rig.group.rotation.y = this.yaw;
     this.wheelSpin += (this.speed / 0.36) * dt;
     for (const w of rig.wheels) w.rotation.x = this.wheelSpin;
-    // suspension bob
+    // suspension bob + body roll in turns + pitch under accel/brake
     rig.body.position.y = Math.sin(t * 9) * 0.012 * Math.min(1, this.speed / 8) + Math.sin(t * 23) * 0.004;
-    rig.body.rotation.z = Math.sin(t * 7) * 0.003 * Math.min(1, this.speed / 8);
+    const accel = (this.speed - this.prevSpeed) / Math.max(dt, 0.001);
+    this.prevSpeed = this.speed;
+    rig.body.rotation.x = THREE.MathUtils.lerp(rig.body.rotation.x, THREE.MathUtils.clamp(-accel * 0.004, -0.05, 0.05), 1 - Math.exp(-dt * 5));
+    const rollTarget = THREE.MathUtils.clamp(-this.lastTurn * this.speed * 0.012, -0.07, 0.07) + Math.sin(t * 7) * 0.003 * Math.min(1, this.speed / 8);
+    rig.body.rotation.z = THREE.MathUtils.lerp(rig.body.rotation.z, rollTarget, 1 - Math.exp(-dt * 4));
     // brake / indicators
     const braking = targetSpeed < this.speed - 0.5 || this.state === 'stop';
     rig.tailMat.emissiveIntensity = braking ? 3 : 0.7;

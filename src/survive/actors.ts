@@ -222,6 +222,8 @@ export function makeHumanoid(kind: ModelKind, seed = 1, armed = false): Humanoid
   return { group: g, head: headG, torso, armL, armR, legL, legR, rifle, setPose };
 }
 
+const _steerTmp = new THREE.Vector3();
+
 export function steerToward(
   pos: THREE.Vector3,
   target: THREE.Vector3,
@@ -235,10 +237,27 @@ export function steerToward(
   const d = Math.hypot(dx, dz);
   if (d < 0.05) return 0;
   const step = Math.min(d, speed * dt);
-  pos.x += (dx / d) * step;
-  pos.z += (dz / d) * step;
+  const nx = dx / d;
+  const nz = dz / d;
+  // try full / x-only / z-only steps, keep the one that gets closest:
+  // cheap wall sliding so NPCs go around corners instead of pushing into them
+  let bi = 0;
+  let bd = Infinity;
+  for (let i = 0; i < 3; i++) {
+    const cx = i === 2 ? pos.x : pos.x + nx * step;
+    const cz = i === 1 ? pos.z : pos.z + nz * step;
+    _steerTmp.set(cx, pos.y, cz);
+    resolveCollision(_steerTmp, radius, colliders);
+    const score = Math.hypot(_steerTmp.x - target.x, _steerTmp.z - target.z) + i * 0.15;
+    if (score < bd) {
+      bd = score;
+      bi = i;
+    }
+  }
+  pos.x = bi === 2 ? pos.x : pos.x + nx * step;
+  pos.z = bi === 1 ? pos.z : pos.z + nz * step;
   resolveCollision(pos, radius, colliders);
-  return d - step;
+  return Math.hypot(pos.x - target.x, pos.z - target.z);
 }
 
 // ============================================================ civilians
