@@ -75,6 +75,8 @@ function Minimap({ hud }: { hud: HudSnapshot }) {
     };
     for (const d of hud.dots) {
       if (d.kind === 'pickup') dot(d.x, d.z, '#9fe07a', 2.5);
+      else if (d.kind === 'medkit') dot(d.x, d.z, '#ff6a6a', 2.5);
+      else if (d.kind === 'ammo') dot(d.x, d.z, '#ffd23a', 2.5);
       else if (d.kind === 'checkpoint') dot(d.x, d.z, '#ff9a4a', 4);
       else if (d.kind === 'enemy') dot(d.x, d.z, '#ff5a4a', 3);
       else if (d.kind === 'ally') dot(d.x, d.z, '#7ad2ff', 3);
@@ -272,13 +274,13 @@ export default function HudView(props: HudViewProps) {
       </div>
 
       <div className="gc-left">
-        <div className="gc-vital"><span>ЗДОРОВ’Я</span><Bar value={hud.health} className="hp" /></div>
+        <div className="gc-vital"><img className="gc-ico" src={ASSET_URLS.ic_first_aid_kit} alt="" /><span>ЗДОРОВ’Я</span><Bar value={hud.health} className="hp" /></div>
         <div className="gc-vital"><span>ВИТРИВАЛІСТЬ</span><Bar value={hud.stamina} className="st" /></div>
         {hud.chapter === 'city' && (
-          <div className="gc-docsline">ДОКУМЕНТИ <b>{hud.docCount}</b> • ДІЙСН. <b>{hud.validCount}</b> <i>[Tab]</i></div>
+          <div className="gc-docsline"><img className="gc-ico" src={ASSET_URLS.ic_notebook} alt="" />ДОКУМЕНТИ <b>{hud.docCount}</b> • ДІЙСН. <b>{hud.validCount}</b> <i>[Tab]</i></div>
         )}
         {hud.armed && (
-          <div className="gc-ammo">БК <b>{hud.ammo}</b> / {hud.reserve}</div>
+          <div className="gc-ammo"><img className="gc-ico" src={ASSET_URLS.ic_heavy_bullets} alt="" />БК <b>{hud.ammo}</b> / {hud.reserve}</div>
         )}
       </div>
 
@@ -332,7 +334,7 @@ export default function HudView(props: HudViewProps) {
         <section className="gc-wallet">
           <div className="gc-wallet__panel">
             <header>
-              <strong>ДОКУМЕНТИ</strong>
+              <strong><img className="gc-ico" src={ASSET_URLS.ic_files} alt="" />ДОКУМЕНТИ</strong>
               <button type="button" onClick={props.onToggleWallet}>ЗАКРИТИ [Tab]</button>
             </header>
             {docs.length === 0 && <p className="gc-empty">Поки порожньо. Шукайте документи у місті.</p>}
@@ -374,6 +376,7 @@ export default function HudView(props: HudViewProps) {
       {hud.victory && (
         <section className="gc-modal gc-victory">
           <div className="gc-eyebrow"><span /> ЕВАКУАЦІЯ ВДАЛАСЯ</div>
+          <img className="gc-dove" src={ASSET_URLS.ic_dove} alt="" />
           <h2>КОРИДОР ПРОЙДЕНО</h2>
           <p>Ви пережили облаву, навчальний центр і східний напрямок.</p>
           <div className="gc-stats">

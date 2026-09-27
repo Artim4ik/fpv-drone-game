@@ -122,7 +122,7 @@ export interface Objective {
 export interface MiniDot {
   x: number;
   z: number;
-  kind: 'player' | 'ally' | 'enemy' | 'van' | 'pickup' | 'target' | 'checkpoint';
+  kind: 'player' | 'ally' | 'enemy' | 'van' | 'pickup' | 'medkit' | 'ammo' | 'target' | 'checkpoint';
 }
 
 export interface HudSnapshot {

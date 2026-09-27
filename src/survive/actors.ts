@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { camoTexture, faceTexture, flannelTexture, jacketTexture, vestTexture } from './textures';
 import { resolveCollision, losBlocked, type BoxCollider } from './world';
+import { findNavPath, type NavGrid } from './astar';
 import type { AnimState, ModelKind } from './types';
 
 export type PoseState = AnimState | 'guard';
@@ -418,6 +419,49 @@ export function steerToward(
   return Math.hypot(pos.x - target.x, pos.z - target.z);
 }
 
+export interface PathFollower {
+  path: THREE.Vector3[];
+  repathT: number;
+  lastTX: number;
+  lastTZ: number;
+}
+
+export function makeFollower(): PathFollower {
+  return { path: [], repathT: 0, lastTX: 9999, lastTZ: 9999 };
+}
+
+/**
+ * A* path following (qiao/PathFinding.js, MIT). Re-paths at ~1Hz or when the
+ * target moves. Falls back to direct steering when nav is missing or no
+ * route exists. Returns remaining distance to target.
+ */
+export function followPath(
+  f: PathFollower,
+  pos: THREE.Vector3,
+  target: THREE.Vector3,
+  speed: number,
+  dt: number,
+  colliders: BoxCollider[],
+  nav: NavGrid | null,
+): number {
+  const distT = Math.hypot(target.x - pos.x, target.z - pos.z);
+  if (!nav) return steerToward(pos, target, speed, dt, colliders);
+  f.repathT -= dt;
+  const moved = Math.hypot(target.x - f.lastTX, target.z - f.lastTZ);
+  if (f.path.length === 0 || f.repathT <= 0 || moved > 4) {
+    f.repathT = 1.2;
+    f.lastTX = target.x;
+    f.lastTZ = target.z;
+    f.path = distT > 3 ? findNavPath(nav, pos.x, pos.z, target.x, target.z) : [];
+  }
+  if (f.path.length === 0) return steerToward(pos, target, speed, dt, colliders);
+  const wp = f.path[0];
+  if (Math.hypot(wp.x - pos.x, wp.z - pos.z) < 1.2) f.path.shift();
+  const goal = f.path[0] ?? target;
+  steerToward(pos, goal, speed, dt, colliders);
+  return distT;
+}
+
 // ============================================================ civilians
 export type CivilState = 'idle' | 'walk' | 'react' | 'flee' | 'hide' | 'resume';
 
@@ -435,6 +479,8 @@ export class Civilian {
   yaw = 0;
   prevYaw = 0;
   turnSm = 0;
+  nav: NavGrid | null = null;
+  follower = makeFollower();
   private seed: number;
 
   constructor(loop: THREE.Vector3[], seed: number, scene: THREE.Object3D, post: THREE.Vector3 | null = null) {
@@ -511,7 +557,7 @@ export class Civilian {
       case 'flee': {
         if (danger) {
           const away = new THREE.Vector3(this.pos.x - danger.x, 0, this.pos.z - danger.z).normalize().multiplyScalar(10).add(this.pos);
-          steerToward(this.pos, away, 3.4, dt, colliders);
+          followPath(this.follower, this.pos, away, 3.4, dt, colliders, this.nav);
           this.yaw = turnToward(this.yaw, Math.atan2(away.x - this.pos.x, away.z - this.pos.z), dt * 6);
         }
         moving = 1;
@@ -582,6 +628,8 @@ export class Hostile {
   hasKnown = false;
   home: THREE.Vector3;
   wanderT = 0;
+  nav: NavGrid | null = null;
+  follower = makeFollower();
   wanderTarget: THREE.Vector3;
   accuracy = 0.3;
   dead = false;
@@ -639,7 +687,7 @@ export class Hostile {
           this.wanderT = 3 + Math.random() * 3;
           this.wanderTarget.set(this.home.x + (Math.random() - 0.5) * 24, 0, this.home.z + (Math.random() - 0.5) * 24);
         }
-        steerToward(this.pos, this.wanderTarget, 1.6, dt, colliders);
+        followPath(this.follower, this.pos, this.wanderTarget, 1.6, dt, colliders, this.nav);
         this.yaw = turnToward(this.yaw, Math.atan2(this.wanderTarget.x - this.pos.x, this.wanderTarget.z - this.pos.z), dt * 5);
         hd.setPose('walk', t, 0.6);
         if (seesPlayer) {
@@ -657,7 +705,7 @@ export class Hostile {
         }
         break;
       case 'investigate': {
-        const remain = steerToward(this.pos, this.lastKnown, 2.6, dt, colliders);
+        const remain = followPath(this.follower, this.pos, this.lastKnown, 2.6, dt, colliders, this.nav);
         this.yaw = turnToward(this.yaw, Math.atan2(this.lastKnown.x - this.pos.x, this.lastKnown.z - this.pos.z), dt * 5);
         hd.setPose('walk', t, 0.8);
         if (seesPlayer) {
@@ -706,7 +754,7 @@ export class Hostile {
         break;
       }
       case 'reposition': {
-        const remain = steerToward(this.pos, this.wanderTarget, 3.2, dt, colliders);
+        const remain = followPath(this.follower, this.pos, this.wanderTarget, 3.2, dt, colliders, this.nav);
         this.yaw = turnToward(this.yaw, Math.atan2(this.wanderTarget.x - this.pos.x, this.wanderTarget.z - this.pos.z), dt * 5);
         hd.setPose('run', t, 1);
         if (remain < 1.2 || this.stateT > 5) {

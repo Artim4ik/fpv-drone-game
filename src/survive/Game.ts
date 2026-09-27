@@ -4,6 +4,8 @@
 // ============================================================
 import * as THREE from 'three';
 import { World, nearCover, resolveCollision, losBlocked, type ZoneData } from './world';
+import { buildNavGrid, type NavGrid } from './astar';
+import { makeFireQuad, tickFire } from './fire';
 import { makeHumanoid, Civilian, FootPatrol, Hostile, steerToward, makeNameTag, type Humanoid } from './actors';
 import { VanAI } from './minibus';
 import { AudioEngine } from './audio';
@@ -25,8 +27,8 @@ import {
   type PlayerStats,
   type Quality,
 } from './types';
-import { softDotTexture, targetFaceTexture , glowTexture, muzzleTexture} from './textures';
-import { photoTexture } from './assets';
+import { softDotTexture, targetFaceTexture , glowTexture} from './textures';
+import { pixelTexture,  photoTexture } from './assets';
 import type { AnimState } from '../../shared/protocol';
 
 export interface GameOptions {
@@ -224,7 +226,9 @@ export class Game {
   private muzzleT = 99;
   private tracers: THREE.Mesh[] = [];
   private tracerT: number[] = [];
-  private flashes: Array<{ light: THREE.PointLight; sprite: THREE.Sprite; t: number }> = [];
+  private flashes: Array<{ light: THREE.PointLight; sprite: THREE.Sprite; flare?: THREE.Sprite; quad?: THREE.Mesh; t: number }> = [];
+  private smokes: Array<{ sprite: THREE.Sprite; t: number; life: number; rise: number }> = [];
+  private navGrid: NavGrid | null = null;
   private sun!: THREE.DirectionalLight;
   private hemi!: THREE.HemisphereLight;
   private skyMat!: THREE.ShaderMaterial;
@@ -272,7 +276,7 @@ export class Game {
     this.initParticles();
     this.muzzleLight = new THREE.PointLight('#ffca6a', 0, 18, 1.8);
     this.scene.add(this.muzzleLight);
-    this.muzzleSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: muzzleTexture(), color: '#ffcf7a', transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
+    this.muzzleSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: pixelTexture('tx_flash_particle'), color: '#ffcf7a', transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
     this.muzzleSprite.scale.set(1.4, 1.4, 1);
     this.scene.add(this.muzzleSprite);
     this.beaconGlow = new THREE.Sprite(
@@ -506,10 +510,38 @@ export class Game {
     const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: photoTexture('fire', 1, 1, softDotTexture), color: '#ffe0b0', transparent: true, opacity: 1, depthWrite: false, blending: THREE.AdditiveBlending }));
     sprite.position.copy(light.position);
     sprite.scale.set(big ? 8 : 4, big ? 8 : 4, 1);
-    this.scene.add(light, sprite);
-    this.flashes.push({ light, sprite, t: 0 });
+    const flare = new THREE.Sprite(new THREE.SpriteMaterial({ map: pixelTexture('tx_flare'), color: '#ffd9a0', transparent: true, opacity: 1, depthWrite: false, blending: THREE.AdditiveBlending }));
+    flare.position.copy(light.position);
+    flare.scale.set(big ? 5 : 2.5, big ? 5 : 2.5, 1);
+    const quad = makeFireQuad(big ? 7 : 3.5, big ? 9 : 4.5, { speed: 20, intensity: 0.75, pixel: 6, bitrate: 8 });
+    quad.position.copy(p).add(new THREE.Vector3(0, big ? 3 : 1.5, 0));
+    quad.rotation.y = Math.random() * Math.PI;
+    this.scene.add(light, sprite, flare, quad);
+    this.flashes.push({ light, sprite, flare, quad, t: 0 });
+    const smokeKeys = ['tx_cloud_black_smoke', 'tx_cloud_yellow_smoke', 'tx_smoke_particle'] as const;
+    for (let i = 0; i < (big ? 4 : 2); i++) {
+      const sm = new THREE.Sprite(new THREE.SpriteMaterial({ map: pixelTexture(smokeKeys[i % 3]), transparent: true, opacity: 0.5, depthWrite: false }));
+      sm.position.set(p.x + (Math.random() - 0.5) * 3, p.y + 1 + Math.random() * 2, p.z + (Math.random() - 0.5) * 3);
+      const s = (big ? 3 : 1.8) * (0.7 + Math.random() * 0.6);
+      sm.scale.set(s, s, 1);
+      this.scene.add(sm);
+      this.smokes.push({ sprite: sm, t: 0, life: big ? 2.6 : 1.6, rise: 1 + Math.random() });
+    }
     this.audio.explosionReal(this.pos.distanceTo(p));
     this.shake = Math.min(1, this.shake + (big ? 0.5 : 0.2));
+  }
+
+  /** Star-burst (godot flipbook quadrant) on pickup. */
+  private burstFx(pos: THREE.Vector3): void {
+    const tq = pixelTexture('tx_flipbook').clone();
+    tq.needsUpdate = true;
+    tq.repeat.set(0.5, 0.5);
+    tq.offset.set(0.5, 0.5);
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tq, color: '#fff2b0', transparent: true, opacity: 1, depthWrite: false, blending: THREE.AdditiveBlending }));
+    sp.position.set(pos.x, 1.2, pos.z);
+    sp.scale.set(1.2, 1.2, 1);
+    this.scene.add(sp);
+    this.smokes.push({ sprite: sp, t: 0, life: 0.5, rise: 1.5 });
   }
 
   private buildPlayer(kind: 'civilian' | 'soldier'): void {
@@ -723,6 +755,7 @@ export class Game {
       this.sun.position.set(-70, 55, 35);
       this.hemi.intensity = 1.25;
       this.zone = this.world.load(this.scene, 'city');
+      this.navGrid = buildNavGrid(this.zone.colliders, this.zone.bounds);
       this.startCityFx();
       this.pos.copy(this.zone.spawn);
       this.camYaw = this.zone.spawnYaw;
@@ -809,7 +842,7 @@ export class Game {
           }
         }
       }
-      this.objective = { title: 'Знайдіть документи', detail: 'Огляньте район: двори, гаражі, машини. [E] — взяти', progress: `0/${this.zone.pickups.length}` };
+      this.objective = { title: 'Знайдіть документи', detail: 'Огляньте район: двори, гаражі, машини. [E] — взяти', progress: `0/${this.zone.pickups.filter((q) => q.kind === 'doc').length}` };
     } else if (ch === 'minibus') {
       // keep city visuals (ride through the city)
       this.ensureRideCast();
@@ -866,6 +899,7 @@ export class Game {
       this.sun.position.set(30, 80, -20);
       this.hemi.intensity = 1.15;
       this.zone = this.world.load(this.scene, 'frontline');
+      this.navGrid = buildNavGrid(this.zone.colliders, this.zone.bounds);
       this.pos.copy(this.zone.spawn);
       const gy = this.zone.groundY(this.pos.x, this.pos.z);
       this.pos.y = gy;
@@ -1306,6 +1340,7 @@ export class Game {
     // hostiles
     for (let i = this.hostiles.length - 1; i >= 0; i--) {
       const h = this.hostiles[i];
+      h.nav = this.navGrid;
       h.update(dt, this.time, this.pos, this.crouch, this.dead, z.colliders, z.coverPoints, {
         onShoot: (from, target, hit) => {
           this.audio.gunshot(from.distanceTo(this.pos), true);
@@ -1662,13 +1697,28 @@ export class Game {
         this.eHeld = true;
         p.taken = true;
         p.group.visible = false;
+        if (p.kind === 'medkit') {
+          this.health = Math.min(100, this.health + 45);
+          this.audio.pickup();
+          this.showMessage('Аптечка: +45 здоров’я', 2.5);
+          this.burstFx(p.pos);
+          return;
+        }
+        if (p.kind === 'ammo') {
+          this.reserve += 60;
+          this.audio.pickup();
+          this.showMessage('Набої: +60', 2.5);
+          this.burstFx(p.pos);
+          return;
+        }
         const seed = Math.floor(Math.random() * 100000);
         const doc = makeDoc(p.docKind, seed);
         this.docs.push(doc);
         this.opts.onDocs([...this.docs]);
         this.audio.pickup();
         this.showMessage(`Найдено: ${doc.title}`, 2.5);
-        this.objective.progress = `${this.docs.length}/${this.zone.pickups.length}`;
+        this.burstFx(p.pos);
+        this.objective.progress = `${this.docs.length}/${this.zone.pickups.filter((q) => q.kind === 'doc').length}`;
         if (this.docs.length >= 1 && this.objective.title === 'Знайдіть документи') {
           this.objective = { title: 'Патруль у районі', detail: 'Не бігайте поруч із мікроавтобусом. Документи: [Tab]', progress: `${this.docs.length} док.` };
         }
@@ -1833,9 +1883,35 @@ export class Game {
       f.light.intensity = Math.max(0, f.light.intensity - dt * 220);
       (f.sprite.material as THREE.SpriteMaterial).opacity = Math.max(0, 1 - f.t * 2);
       f.sprite.scale.multiplyScalar(1 + dt * 2);
+      if (f.flare) {
+        (f.flare.material as THREE.SpriteMaterial).opacity = Math.max(0, 1 - f.t * 2.5);
+        f.flare.scale.multiplyScalar(1 + dt * 3);
+      }
+      if (f.quad) {
+        tickFire(f.quad.material as THREE.ShaderMaterial, dt);
+        f.quad.scale.multiplyScalar(1 + dt * 1.5);
+        (f.quad.material as THREE.ShaderMaterial).uniforms['u_alpha'].value = Math.max(0, 1 - f.t * 1.5);
+      }
       if (f.t > 1) {
         this.scene.remove(f.light, f.sprite);
+        if (f.flare) this.scene.remove(f.flare);
+        if (f.quad) {
+          this.scene.remove(f.quad);
+          (f.quad.geometry as THREE.BufferGeometry).dispose();
+          (f.quad.material as THREE.Material).dispose();
+        }
         this.flashes.splice(i, 1);
+      }
+    }
+    for (let i = this.smokes.length - 1; i >= 0; i--) {
+      const s = this.smokes[i];
+      s.t += dt;
+      s.sprite.position.y += dt * s.rise;
+      s.sprite.scale.multiplyScalar(1 + dt * 0.8);
+      (s.sprite.material as THREE.SpriteMaterial).opacity = 0.5 * Math.max(0, 1 - s.t / s.life);
+      if (s.t > s.life) {
+        this.scene.remove(s.sprite);
+        this.smokes.splice(i, 1);
       }
     }
   }
@@ -2002,7 +2078,10 @@ export class Game {
 
     // civilians
     const danger = this.van.state === 'chase' || this.van.state === 'slow' || this.van.state === 'dismount' ? this.van.pos : this.van.state === 'check' ? this.van.pos : null;
-    for (const c of this.civilians) c.update(dt, this.time, danger, this.gunshotCity, z.colliders);
+    for (const c of this.civilians) {
+      c.nav = this.navGrid;
+      c.update(dt, this.time, danger, this.gunshotCity, z.colliders);
+    }
     this.gunshotCity = false;
     for (const fp of this.footPatrols) fp.update(dt, this.time, this.pos, running, this.civilians, z.colliders);
 
@@ -2395,7 +2474,7 @@ export class Game {
     const dots: MiniDot[] = [];
     dots.push({ x: this.pos.x, z: this.pos.z, kind: 'player' });
     if (this.zone) {
-      for (const p of this.zone.pickups) if (!p.taken) dots.push({ x: p.pos.x, z: p.pos.z, kind: 'pickup' });
+      for (const p of this.zone.pickups) if (!p.taken) dots.push({ x: p.pos.x, z: p.pos.z, kind: p.kind === 'doc' ? 'pickup' : p.kind });
       for (const b of this.zone.beacons) if (b.visible) dots.push({ x: b.pos.x, z: b.pos.z, kind: 'checkpoint' });
     }
     if (this.van && this.chapter === 'city') dots.push({ x: this.van.pos.x, z: this.van.pos.z, kind: 'van' });

@@ -45,6 +45,71 @@ export const ASSET_URLS = {
   crow: new URL('./assets/sfx/crow.wav', import.meta.url).href,
   creak: new URL('./assets/sfx/creak.wav', import.meta.url).href,
   growl: new URL('./assets/sfx/growl.wav', import.meta.url).href,
+  tx_ball: new URL('./assets/tex/ball.png', import.meta.url).href,
+  tx_bat: new URL('./assets/tex/bat.png', import.meta.url).href,
+  tx_butterfly1: new URL('./assets/tex/butterfly1.png', import.meta.url).href,
+  tx_butterfly2: new URL('./assets/tex/butterfly2.png', import.meta.url).href,
+  tx_butterfly3: new URL('./assets/tex/butterfly3.png', import.meta.url).href,
+  tx_cloud_black_smoke: new URL('./assets/tex/cloud_black_smoke.png', import.meta.url).href,
+  tx_cloud_blastmotes0: new URL('./assets/tex/cloud_blastmotes0.png', import.meta.url).href,
+  tx_cloud_yellow_smoke: new URL('./assets/tex/cloud_yellow_smoke.png', import.meta.url).href,
+  tx_enemy_fly_1: new URL('./assets/tex/enemy_fly_1.png', import.meta.url).href,
+  tx_enemy_fly_2: new URL('./assets/tex/enemy_fly_2.png', import.meta.url).href,
+  tx_enemy_walk_1: new URL('./assets/tex/enemy_walk_1.png', import.meta.url).href,
+  tx_enemy_walk_2: new URL('./assets/tex/enemy_walk_2.png', import.meta.url).href,
+  tx_fire_particle: new URL('./assets/tex/fire_particle.png', import.meta.url).href,
+  tx_flare: new URL('./assets/tex/flare.png', import.meta.url).href,
+  tx_flash_particle: new URL('./assets/tex/flash_particle.png', import.meta.url).href,
+  tx_flipbook: new URL('./assets/tex/flipbook.png', import.meta.url).href,
+  tx_fsm_body: new URL('./assets/tex/fsm_body.png', import.meta.url).href,
+  tx_fsm_sword: new URL('./assets/tex/fsm_sword.png', import.meta.url).href,
+  tx_human: new URL('./assets/tex/human.png', import.meta.url).href,
+  tx_human2: new URL('./assets/tex/human2.png', import.meta.url).href,
+  tx_iso_bone_pile_1: new URL('./assets/tex/iso_bone_pile_1.png', import.meta.url).href,
+  tx_iso_candle: new URL('./assets/tex/iso_candle.png', import.meta.url).href,
+  tx_iso_coin_pile: new URL('./assets/tex/iso_coin_pile.png', import.meta.url).href,
+  tx_iso_fire: new URL('./assets/tex/iso_fire.png', import.meta.url).href,
+  tx_iso_glow: new URL('./assets/tex/iso_glow.png', import.meta.url).href,
+  tx_iso_paw_prints: new URL('./assets/tex/iso_paw_prints.png', import.meta.url).href,
+  tx_iso_sparkle: new URL('./assets/tex/iso_sparkle.png', import.meta.url).href,
+  tx_iso_vase_1: new URL('./assets/tex/iso_vase_1.png', import.meta.url).href,
+  tx_iso_wall_skull: new URL('./assets/tex/iso_wall_skull.png', import.meta.url).href,
+  tx_kin_player: new URL('./assets/tex/kin_player.png', import.meta.url).href,
+  tx_mask: new URL('./assets/tex/mask.png', import.meta.url).href,
+  tx_occultist: new URL('./assets/tex/occultist.png', import.meta.url).href,
+  tx_pf_bullet: new URL('./assets/tex/pf_bullet.png', import.meta.url).href,
+  tx_pf_coin: new URL('./assets/tex/pf_coin.png', import.meta.url).href,
+  tx_pf_enemy: new URL('./assets/tex/pf_enemy.png', import.meta.url).href,
+  tx_player_up1: new URL('./assets/tex/player_up1.png', import.meta.url).href,
+  tx_player_walk1: new URL('./assets/tex/player_walk1.png', import.meta.url).href,
+  tx_player_walk2: new URL('./assets/tex/player_walk2.png', import.meta.url).href,
+  tx_quokka: new URL('./assets/tex/quokka.png', import.meta.url).href,
+  tx_rat: new URL('./assets/tex/rat.png', import.meta.url).href,
+  tx_raven: new URL('./assets/tex/raven.png', import.meta.url).href,
+  tx_scroll_brown: new URL('./assets/tex/scroll_brown.png', import.meta.url).href,
+  tx_scroll_cyan: new URL('./assets/tex/scroll_cyan.png', import.meta.url).href,
+  tx_scroll_grey: new URL('./assets/tex/scroll_grey.png', import.meta.url).href,
+  tx_smoke_particle: new URL('./assets/tex/smoke_particle.png', import.meta.url).href,
+  tx_spark_particle2: new URL('./assets/tex/spark_particle2.png', import.meta.url).href,
+  tx_wolf: new URL('./assets/tex/wolf.png', import.meta.url).href,
+  ic_binoculars: new URL('./assets/icons/binoculars.svg', import.meta.url).href,
+  ic_briefcase: new URL('./assets/icons/briefcase.svg', import.meta.url).href,
+  ic_bullet_impacts: new URL('./assets/icons/bullet_impacts.svg', import.meta.url).href,
+  ic_cat: new URL('./assets/icons/cat.svg', import.meta.url).href,
+  ic_dove: new URL('./assets/icons/dove.svg', import.meta.url).href,
+  ic_envelope: new URL('./assets/icons/envelope.svg', import.meta.url).href,
+  ic_files: new URL('./assets/icons/files.svg', import.meta.url).href,
+  ic_first_aid_kit: new URL('./assets/icons/first_aid_kit.svg', import.meta.url).href,
+  ic_flashlight: new URL('./assets/icons/flashlight.svg', import.meta.url).href,
+  ic_heavy_bullets: new URL('./assets/icons/heavy_bullets.svg', import.meta.url).href,
+  ic_key_card: new URL('./assets/icons/key_card.svg', import.meta.url).href,
+  ic_land_mine: new URL('./assets/icons/land_mine.svg', import.meta.url).href,
+  ic_notebook: new URL('./assets/icons/notebook.svg', import.meta.url).href,
+  ic_paw_print: new URL('./assets/icons/paw_print.svg', import.meta.url).href,
+  ic_raven: new URL('./assets/icons/raven.svg', import.meta.url).href,
+  ic_sitting_dog: new URL('./assets/icons/sitting_dog.svg', import.meta.url).href,
+  ic_syringe: new URL('./assets/icons/syringe.svg', import.meta.url).href,
+  ic_walkie_talkie: new URL('./assets/icons/walkie_talkie.svg', import.meta.url).href,
 } as const;
 
 export type AssetKey = keyof typeof ASSET_URLS;
@@ -90,4 +155,19 @@ export function photoTexture(
   }
   cache.set(ck, tex);
   return tex;
+}
+
+/**
+ * Load a pixel-art texture (cached): NearestFilter + ClampToEdge so
+ * pixel sprites stay crisp. Falls back to procedural on failure.
+ */
+export function pixelTexture(key: AssetKey, fallback?: () => THREE.Texture): THREE.Texture {
+  const t = photoTexture(key, 1, 1, fallback);
+  t.magFilter = THREE.NearestFilter;
+  t.minFilter = THREE.NearestMipmapLinearFilter;
+  t.wrapS = THREE.ClampToEdgeWrapping;
+  t.wrapT = THREE.ClampToEdgeWrapping;
+  t.generateMipmaps = true;
+  t.needsUpdate = true;
+  return t;
 }

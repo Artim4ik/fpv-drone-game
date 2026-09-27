@@ -61,3 +61,37 @@ Game SFX (Pixabay-sourced, royalty-free), converted to mono WAV:
 numpy-synthesized one-shots/loops: `bell.wav` (church bell partials), `crowd.wav`
 (bazaar murmur), `step_as.wav` / `step_gr.wav` (footsteps), `gunshot.wav`,
 `crow.wav`, `creak.wav` (door), `growl.wav` (horror FM sting).
+
+## crawl/crawl — rltiles (public domain / CC0) — https://github.com/crawl/crawl
+Dungeon Crawl Stone Soup tiles are public domain (CC0). Used from `crawl-ref/source/rltiles/`:
+- `tex/wolf.png`, `rat.png`, `bat.png`, `raven.png`, `quokka.png`, `butterfly1/2/3.png` (mon/animals)
+- `tex/human.png`, `human2.png`, `occultist.png` (mon/humanoids/humans)
+- `tex/scroll_brown/cyan/grey.png` (item/scroll), `tex/cloud_black_smoke.png`,
+  `cloud_blastmotes0.png`, `cloud_yellow_smoke.png` (effect)
+
+## godotengine/godot-demo-projects (MIT) — https://github.com/godotengine/godot-demo-projects
+- `tex/fire_particle/smoke_particle/spark_particle2/mask/flipbook.png` (2d/particles)
+- `tex/iso_fire/glow/sparkle/candle/bone_pile_1/coin_pile/paw_prints/wall_skull/vase_1.png`
+  (2d/isometric/decorations)
+- `tex/enemy_fly_1/2, enemy_walk_1/2, player_walk1/2, player_up1.png` (2d/dodge_the_creeps/art)
+- `tex/kin_player, fsm_body, fsm_sword, pf_coin, pf_enemy, pf_bullet.png`
+  (2d/kinematic_character, 2d/finite_state_machine, 2d/physics_platformer)
+
+## game-icons/icons (CC-BY 3.0) — https://github.com/game-icons/icons
+SVG item/animal icons by Delapouite and Lorc (see per-file authors on game-icons.net):
+`icons/*.svg` (first_aid_kit, heavy_bullets, notebook, walkie_talkie, key_card,
+sitting_dog, cat, dove, raven, paw_print, briefcase, flashlight, binoculars,
+bullet_impacts, land_mine, syringe, envelope, files).
+
+## mrdoob/three.js (MIT) — https://github.com/mrdoob/three.js
+- `tex/ball.png` (examples/textures/sprites) — spark1/disc/circle were already vendored.
+
+## BabylonJS/Assets (CC-BY-4.0) — https://github.com/BabylonJS/Assets
+- `tex/flare.png`, `flash_particle.png` (particles/textures/explosion)
+
+## scidian/drop (MIT) — https://github.com/scidian/drop
+- `shaders/frag_fire.glsl` — pixelable GLSL fire (simplex noise by Ashima Arts, MIT).
+
+## qiao/PathFinding.js (MIT) — https://github.com/qiao/PathFinding.js
+- A* core vendored to `src/survive/pf/` (Grid/Node/Util/Heuristic/DiagonalMovement/AStarFinder),
+  converted to ESM; uses npm `heap` (MIT).

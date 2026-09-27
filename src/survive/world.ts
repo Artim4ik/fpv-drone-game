@@ -3,6 +3,8 @@
 // All geometry is generated in code. Collision = XZ AABBs.
 // ============================================================
 import * as THREE from 'three';
+import { pixelTexture, type AssetKey } from './assets';
+import { makeFireQuad, tickFire } from './fire';
 import { brickTexture, carPaintTexture, dirtTexture, facadeTexture, glowTexture, grassTexture, pavementTexture, plankTexture, plateUATexture, roadTexture, ruinTexture, scorchDecalTexture, signTexture, signTextTexture, awningTexture, softDotTexture, treadTexture, uaFlagTexture } from './textures';
 import { photoTexture } from './assets';
 import type { DocKind } from './types';
@@ -94,6 +96,7 @@ export interface Pickup {
   taken: boolean;
   docKind: DocKind;
   label: string;
+  kind: 'doc' | 'medkit' | 'ammo';
 }
 
 export interface Beacon {
@@ -638,8 +641,9 @@ function buildCity(): ZoneData {
     return out;
   };
 
-  // document pickups
+  // document pickups (+ medkits / ammo with pixel icons)
   const dotTex = softDotTexture();
+  const scrollTex = [pixelTexture('tx_scroll_brown'), pixelTexture('tx_scroll_cyan'), pixelTexture('tx_scroll_grey')];
   const pickupDefs: Array<[number, number, DocKind, string]> = [
     [-28, -20, 'registration', 'Тека з паперами'],
     [24, 30, 'incomplete', 'Незаповнений бланк'],
@@ -658,11 +662,48 @@ function buildCity(): ZoneData {
     const glow = new THREE.Sprite(glowMat);
     glow.scale.set(2.4, 2.4, 1);
     glow.position.y = 0.5;
-    g.add(paper, glow);
+    const sc = new THREE.Sprite(new THREE.SpriteMaterial({ map: scrollTex[id % 3], transparent: true, depthWrite: false }));
+    sc.scale.set(0.85, 0.85, 1);
+    sc.position.y = 1.25;
+    g.add(paper, glow, sc);
     g.position.set(x, 0, z);
     group.add(g);
-    pickups.push({ id, pos: new THREE.Vector3(x, 0, z), group: g, glow, taken: false, docKind: kind, label });
+    pickups.push({ id, pos: new THREE.Vector3(x, 0, z), group: g, glow, taken: false, docKind: kind, label, kind: 'doc' });
   });
+
+  // medkit + ammo pickups (game-icons.net CC-BY sprites)
+  {
+    const aidDefs: Array<[number, number, 'medkit' | 'ammo', string]> = [
+      [12, -18, 'medkit', 'Аптечка'],
+      [-52, 34, 'medkit', 'Аптечка'],
+      [64, 6, 'medkit', 'Аптечка'],
+      [-8, -52, 'ammo', 'Набої'],
+      [44, 40, 'ammo', 'Набої'],
+      [-70, 8, 'ammo', 'Набої'],
+    ];
+    const aidBoxM = new THREE.MeshStandardMaterial({ color: '#ddd8c8', roughness: 0.8 });
+    const ammoBoxM = new THREE.MeshStandardMaterial({ color: '#3a4a2e', roughness: 0.8 });
+    aidDefs.forEach(([x, z, akind, label], i) => {
+      const id = pickups.length;
+      const g = new THREE.Group();
+      g.add(box(akind === 'medkit' ? aidBoxM : ammoBoxM, 0.42, 0.3, 0.42, 0, 0.35, 0, 0.4));
+      const iconKey: 'ic_first_aid_kit' | 'ic_syringe' | 'ic_heavy_bullets' =
+        akind === 'medkit' ? (i % 2 === 0 ? 'ic_first_aid_kit' : 'ic_syringe') : 'ic_heavy_bullets';
+      const icon = new THREE.Sprite(
+        new THREE.SpriteMaterial({ map: pixelTexture(iconKey), color: akind === 'medkit' ? '#ff6a6a' : '#ffd23a', transparent: true, depthWrite: false }),
+      );
+      icon.scale.set(0.8, 0.8, 1);
+      icon.position.y = 1.05;
+      const glowMat = new THREE.SpriteMaterial({ map: dotTex, color: akind === 'medkit' ? '#ff6a6a' : '#9fe07a', transparent: true, opacity: 0.5, depthWrite: false });
+      const glow = new THREE.Sprite(glowMat);
+      glow.scale.set(2, 2, 1);
+      glow.position.y = 0.5;
+      g.add(icon, glow);
+      g.position.set(x, 0, z);
+      group.add(g);
+      pickups.push({ id, pos: new THREE.Vector3(x, 0, z), group: g, glow, taken: false, docKind: 'civil_id', label, kind: akind });
+    });
+  }
 
   // nudge pickups out of building colliders so they stay reachable
   for (const p of pickups) {
@@ -795,26 +836,47 @@ function buildCity(): ZoneData {
     });
   }
 
+  let doveX = 46;
+  let doveZ = 50;
   // dovecote + pigeons
   const pigeons: THREE.Group[] = [];
   {
     const [dx, dz] = nudgeFree(46, 50, 1.6);
+    doveX = dx;
+    doveZ = dz;
     group.add(box(trunkMat, 0.25, 5, 0.25, dx, 2.5, dz));
     group.add(box(crateMat, 1.3, 1, 1.3, dx, 5.5, dz));
     group.add(box(new THREE.MeshStandardMaterial({ color: '#5a3a2a', roughness: 0.9 }), 1.5, 0.14, 1.5, dx, 6.05, dz));
     addCollider(dx, dz, 0.6, 0.6);
-    const pgM = new THREE.MeshStandardMaterial({ color: '#8a8f98', roughness: 0.9 });
-    const pgD = new THREE.MeshStandardMaterial({ color: '#5a5e66', roughness: 0.9 });
+    const birdGeo = new THREE.PlaneGeometry(0.5, 0.55);
+    const birdMat1 = new THREE.MeshBasicMaterial({ map: pixelTexture('tx_enemy_fly_1'), transparent: true, side: THREE.DoubleSide });
+    const birdMat2 = new THREE.MeshBasicMaterial({ map: pixelTexture('tx_enemy_fly_2'), transparent: true, side: THREE.DoubleSide });
     for (let i = 0; i < 7; i++) {
       const pg = new THREE.Group();
-      pg.add(box(i % 2 ? pgM : pgD, 0.16, 0.14, 0.26, 0, 0.1, 0));
-      pg.add(box(i % 2 ? pgD : pgM, 0.1, 0.1, 0.1, 0, 0.2, 0.14));
+      const wing1 = new THREE.Mesh(birdGeo, i % 2 ? birdMat1 : birdMat2);
+      wing1.position.y = 0.2;
+      const wing2 = new THREE.Mesh(birdGeo, i % 2 ? birdMat2 : birdMat1);
+      wing2.position.y = 0.2;
+      wing2.visible = false;
+      pg.add(wing1, wing2);
       const cx = 28 + (rnd() - 0.5) * 10;
       const cz = 56 + (rnd() - 0.5) * 10;
       pg.position.set(cx, i === 0 ? 7 : 0.02, cz);
-      pg.userData = { cx, cz, ph: rnd() * 6.28, wt: rnd() * 2, dir: rnd() * 6.28, peck: 0, fly: i === 0 };
+      pg.userData = { cx, cz, ph: rnd() * 6.28, wt: rnd() * 2, dir: rnd() * 6.28, peck: 0, fly: i === 0, w1: wing1, w2: wing2 };
       group.add(pg);
       pigeons.push(pg);
+    }
+  }
+
+  // perched ravens (crawl tiles) on the dovecote roof
+  {
+    const rmat = new THREE.MeshBasicMaterial({ map: pixelTexture('tx_raven'), transparent: true, side: THREE.DoubleSide });
+    const rgeo = new THREE.PlaneGeometry(0.5, 0.5);
+    for (const [ox, oz, ry] of [[0.3, 0, 0.4], [-0.35, 0.2, -0.9]] as Array<[number, number, number]>) {
+      const r = new THREE.Mesh(rgeo, rmat);
+      r.position.set(doveX + ox, 6.4, doveZ + oz);
+      r.rotation.y = ry;
+      group.add(r);
     }
   }
 
@@ -891,6 +953,10 @@ function buildCity(): ZoneData {
     const tail = box(furM, 0.06, 0.06, 0.34, 0, 0.55, -0.32);
     tail.rotation.x = -0.5;
     dog.add(tail);
+    const dogTag = new THREE.Sprite(new THREE.SpriteMaterial({ map: pixelTexture('tx_wolf'), transparent: true, depthWrite: false }));
+    dogTag.scale.set(0.55, 0.55, 1);
+    dogTag.position.y = 1.2;
+    dog.add(dogTag);
     const [dxx, dzz] = nudgeFree(12, 58, 1);
     dog.position.set(dxx, 0, dzz);
     dog.userData = { cx: dxx, cz: dzz, wt: 1, dir: 0, legs };
@@ -905,8 +971,252 @@ function buildCity(): ZoneData {
     group.add(box(crateMat, 0.7, 0.7, 0.7, ctx, 0.35, ctz));
     cat.position.set(ctx, 0.7, ctz);
     cat.rotation.y = 0.7;
+    const catTag = new THREE.Sprite(new THREE.SpriteMaterial({ map: pixelTexture('ic_cat'), transparent: true, depthWrite: false }));
+    catTag.scale.set(0.45, 0.45, 1);
+    catTag.position.y = 0.85;
+    cat.add(catTag);
     group.add(cat);
     addCollider(ctx, ctz, 0.8, 0.8);
+    const paw = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.9), new THREE.MeshBasicMaterial({ map: pixelTexture('tx_iso_paw_prints'), transparent: true, opacity: 0.85 }));
+    paw.rotation.x = -Math.PI / 2;
+    paw.rotation.z = 0.5;
+    paw.position.set(dxx + 1.5, 0.02, dzz + 1);
+    group.add(paw);
+  }
+
+  // bulletin boards with pixel posters (GitHub textures)
+  {
+    const postM = new THREE.MeshStandardMaterial({ color: '#4a3b2c', roughness: 1 });
+    const boardM = new THREE.MeshStandardMaterial({ color: '#6e5a40', roughness: 1 });
+    const paperM = new THREE.MeshStandardMaterial({ color: '#cfc8b0', roughness: 0.95 });
+    const boards: Array<{ x: number; z: number; ry: number; mains: AssetKey[]; minis: AssetKey[] }> = [
+      { x: 8, z: 40, ry: 0.4, mains: ['tx_wolf', 'tx_human'], minis: ['tx_pf_coin', 'tx_player_walk1', 'tx_kin_player', 'tx_pf_bullet'] },
+      { x: 16, z: -32, ry: -0.6, mains: ['ic_sitting_dog', 'ic_cat'], minis: ['ic_walkie_talkie', 'ic_binoculars', 'ic_flashlight', 'ic_briefcase', 'ic_dove', 'ic_key_card'] },
+      { x: -40, z: -8, ry: 1.2, mains: ['tx_human2', 'tx_occultist'], minis: ['tx_bat', 'tx_rat', 'tx_raven', 'tx_quokka'] },
+    ];
+    for (const b of boards) {
+      const [bx, bz] = nudgeFree(b.x, b.z, 2);
+      const bg = new THREE.Group();
+      bg.add(box(postM, 0.14, 2.2, 0.14, -1.2, 1.1, 0));
+      bg.add(box(postM, 0.14, 2.2, 0.14, 1.2, 1.1, 0));
+      bg.add(box(boardM, 2.8, 1.7, 0.1, 0, 1.55, 0));
+      b.mains.forEach((key, i) => {
+        const px = i === 0 ? -0.68 : 0.68;
+        const back = new THREE.Mesh(new THREE.PlaneGeometry(0.95, 0.95), paperM);
+        back.position.set(px, 1.72, 0.06);
+        bg.add(back);
+        const art = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.8), new THREE.MeshBasicMaterial({ map: pixelTexture(key), transparent: true }));
+        art.position.set(px, 1.72, 0.07);
+        bg.add(art);
+      });
+      b.minis.forEach((key, i) => {
+        const n = b.minis.length;
+        const mx = (i - (n - 1) / 2) * (n > 4 ? 0.3 : 0.42);
+        const mini = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.3), new THREE.MeshBasicMaterial({ map: pixelTexture(key), transparent: true }));
+        mini.position.set(mx, 0.95, 0.06);
+        bg.add(mini);
+      });
+      if (b.x === -40) {
+        const hi = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.28), new THREE.MeshBasicMaterial({ map: pixelTexture('tx_iso_glow'), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+        hi.position.set(-0.9, 2.32, 0.06);
+        hi.rotation.z = -0.15;
+        bg.add(hi);
+      }
+      if (b.x === 8) {
+        const env = new THREE.Mesh(new THREE.PlaneGeometry(0.32, 0.32), new THREE.MeshBasicMaterial({ map: pixelTexture('ic_envelope'), transparent: true }));
+        env.position.set(1.05, 2.32, 0.06);
+        env.rotation.z = 0.2;
+        bg.add(env);
+        const rv = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 0.34), new THREE.MeshBasicMaterial({ map: pixelTexture('ic_raven'), transparent: true }));
+        rv.position.set(0.6, 2.32, 0.06);
+        rv.rotation.z = -0.1;
+        bg.add(rv);
+      }
+      bg.position.set(bx, 0, bz);
+      bg.rotation.y = b.ry;
+      group.add(bg);
+      addCollider(bx, bz, 1.6, 1.6);
+    }
+  }
+
+  // pixel critters + scatter (GitHub textures)
+  const butterflies: THREE.Sprite[] = [];
+  const bats: THREE.Mesh[] = [];
+  let ratMesh: THREE.Mesh;
+  {
+    const [fx, fz] = nudgeFree(20, 48, 2);
+    const [fx2, fz2] = nudgeFree(-24, 12, 2);
+    const bkeys = ['tx_butterfly1', 'tx_butterfly2', 'tx_butterfly3', 'tx_butterfly1'] as const;
+    const centers = [[fx, fz], [fx2, fz2], [fx + 4, fz - 3], [fx2 - 4, fz2 + 3]];
+    bkeys.forEach((k, i) => {
+      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: pixelTexture(k), transparent: true, depthWrite: false }));
+      s.scale.set(0.35, 0.35, 1);
+      const [cx, cz] = centers[i];
+      s.userData = { cx, cz, ph: i * 1.7 };
+      group.add(s);
+      butterflies.push(s);
+    });
+    const batMat = new THREE.MeshBasicMaterial({ map: pixelTexture('tx_bat'), transparent: true, side: THREE.DoubleSide });
+    const batGeo = new THREE.PlaneGeometry(0.6, 0.6);
+    for (let i = 0; i < 2; i++) {
+      const b = new THREE.Mesh(batGeo, batMat);
+      b.userData = { ph: i * Math.PI };
+      group.add(b);
+      bats.push(b);
+    }
+    ratMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.45, 0.45), new THREE.MeshBasicMaterial({ map: pixelTexture('tx_rat'), transparent: true, side: THREE.DoubleSide }));
+    const [ratx, ratz] = nudgeFree(-80, 60, 2);
+    ratMesh.userData = { cx: ratx, cz: ratz, wp: 0 };
+    ratMesh.position.set(ratx, 0.25, ratz);
+    group.add(ratMesh);
+    const q = new THREE.Sprite(new THREE.SpriteMaterial({ map: pixelTexture('tx_quokka'), transparent: true, depthWrite: false }));
+    q.scale.set(0.6, 0.6, 1);
+    q.position.set(-90, 0.35, -88);
+    group.add(q);
+    const ball = new THREE.Sprite(new THREE.SpriteMaterial({ map: pixelTexture('tx_ball'), transparent: true, depthWrite: false }));
+    ball.scale.set(0.42, 0.42, 1);
+    ball.position.set(31, 0.22, 44);
+    group.add(ball);
+    const [shx, shz] = nudgeFree(-84, 60, 2);
+    const bones = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 1.3), new THREE.MeshStandardMaterial({ map: pixelTexture('tx_iso_bone_pile_1'), transparent: true, roughness: 1 }));
+    bones.rotation.x = -Math.PI / 2;
+    bones.position.set(shx, 0.02, shz);
+    group.add(bones);
+    const skull = new THREE.Mesh(new THREE.PlaneGeometry(0.55, 0.55), new THREE.MeshBasicMaterial({ map: pixelTexture('tx_iso_wall_skull'), transparent: true, side: THREE.DoubleSide }));
+    skull.position.set(shx + 0.3, 0.35, shz - 0.3);
+    skull.rotation.set(-0.2, 0.6, 0.1);
+    group.add(skull);
+    const [coix, coiz] = nudgeFree(10, -26, 1.5);
+    group.add(box(crateMat, 0.7, 0.7, 0.7, coix, 0.35, coiz));
+    const coins = new THREE.Mesh(new THREE.PlaneGeometry(0.55, 0.55), new THREE.MeshBasicMaterial({ map: pixelTexture('tx_iso_coin_pile'), transparent: true }));
+    coins.rotation.x = -Math.PI / 2;
+    coins.position.set(coix, 0.72, coiz);
+    group.add(coins);
+    const glintTex = pixelTexture('tx_iso_sparkle').clone();
+    glintTex.needsUpdate = true;
+    glintTex.wrapS = THREE.RepeatWrapping;
+    glintTex.repeat.set(1 / 8, 1);
+    const glint = new THREE.Sprite(new THREE.SpriteMaterial({ map: glintTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, color: '#fff2b0' }));
+    glint.scale.set(0.5, 0.5, 1);
+    glint.position.set(coix, 1.0, coiz);
+    group.add(glint);
+    group.userData.coinGlint = glint;
+    addCollider(coix, coiz, 0.8, 0.8);
+    const [vx, vz] = nudgeFree(42, 52, 1);
+    const vase = new THREE.Sprite(new THREE.SpriteMaterial({ map: pixelTexture('tx_iso_vase_1'), transparent: true, depthWrite: false }));
+    vase.scale.set(0.6, 0.6, 1);
+    vase.position.set(vx, 0.35, vz);
+    group.add(vase);
+    const [mx, mz] = nudgeFree(-34, -44, 2);
+    const candleMat = new THREE.MeshBasicMaterial({ map: pixelTexture('tx_iso_candle'), transparent: true, side: THREE.DoubleSide });
+    const sparkMat = new THREE.SpriteMaterial({ map: pixelTexture('tx_spark_particle2'), color: '#ffaa3a', transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+    for (let i = 0; i < 3; i++) {
+      const cd = new THREE.Mesh(new THREE.PlaneGeometry(0.35, 0.35), candleMat);
+      cd.position.set(mx + (i - 1) * 0.45, 0.2, mz + (i % 2) * 0.2);
+      cd.rotation.y = (i - 1) * 0.3;
+      group.add(cd);
+      const fl = new THREE.Sprite(sparkMat);
+      fl.scale.set(0.16, 0.16, 1);
+      fl.position.set(mx + (i - 1) * 0.45, 0.42, mz + (i % 2) * 0.2);
+      group.add(fl);
+    }
+    for (const [ix, iz] of [[20, -60], [-50, 30]] as Array<[number, number]>) {
+      const [nx, nz] = nudgeFree(ix, iz, 1.5);
+      const scorch = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 2.2), new THREE.MeshBasicMaterial({ map: scorchDecalTexture(), transparent: true, opacity: 0.9, depthWrite: false }));
+      scorch.rotation.x = -Math.PI / 2;
+      scorch.position.set(nx, 0.015, nz);
+      group.add(scorch);
+      const imp = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 1.1), new THREE.MeshBasicMaterial({ map: pixelTexture('ic_bullet_impacts'), transparent: true, opacity: 0.8, depthWrite: false }));
+      imp.rotation.x = -Math.PI / 2;
+      imp.rotation.z = nx * 0.7;
+      imp.position.set(nx, 0.03, nz);
+      group.add(imp);
+    }
+    const mineGeo = new THREE.CylinderGeometry(0.3, 0.35, 0.12, 10);
+    const mineM = new THREE.MeshStandardMaterial({ color: '#2c2f24', roughness: 0.9 });
+    for (const [ix, iz] of [[-90, -40], [90, 60]] as Array<[number, number]>) {
+      const mm = new THREE.Mesh(mineGeo, mineM);
+      mm.position.set(ix, 0.06, iz);
+      group.add(mm);
+      const ms = new THREE.Sprite(new THREE.SpriteMaterial({ map: pixelTexture('ic_land_mine'), transparent: true, depthWrite: false, opacity: 0.9 }));
+      ms.scale.set(0.5, 0.5, 1);
+      ms.position.set(ix, 0.45, iz);
+      group.add(ms);
+    }
+    const fsmSword = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.25), new THREE.MeshBasicMaterial({ map: pixelTexture('tx_fsm_sword'), transparent: true, side: THREE.DoubleSide }));
+    fsmSword.position.set(shx - 0.8, 0.3, shz + 0.6);
+    fsmSword.rotation.set(0, 0.9, -0.5);
+    group.add(fsmSword);
+  }
+
+  // barrel fires (animated pixel strips) + bazaar braziers (GLSL fire)
+  const fireStrips: Array<{ tex: THREE.Texture; ph: number }> = [];
+  const fireMats: THREE.ShaderMaterial[] = [];
+  const barrelLights: THREE.PointLight[] = [];
+  const barrelSmokes: THREE.Sprite[] = [];
+  {
+    const barrelM = new THREE.MeshStandardMaterial({ color: '#3a3d42', roughness: 0.7, metalness: 0.5 });
+    const barrelGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.9, 12);
+    const stripBase = pixelTexture('tx_iso_fire');
+    const coreMat = new THREE.SpriteMaterial({ map: pixelTexture('tx_fire_particle'), color: '#ff8a3a', transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+    const smokeMat = new THREE.SpriteMaterial({ map: pixelTexture('tx_smoke_particle'), color: '#555558', transparent: true, opacity: 0.35, depthWrite: false });
+    for (const [ix, iz] of [[-8, 60], [60, -40], [-60, -20]] as Array<[number, number]>) {
+      const [sx, sz] = nudgeFree(ix, iz, 1.5);
+      const bar = new THREE.Mesh(barrelGeo, barrelM);
+      bar.position.set(sx, 0.45, sz);
+      group.add(bar);
+      const tex = stripBase.clone();
+      tex.needsUpdate = true;
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.repeat.set(1 / 11, 1);
+      const fm = new THREE.MeshBasicMaterial({ map: tex, color: '#ff9a4a', transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+      for (const ry of [0.3, 0.3 + Math.PI / 2]) {
+        const pl = new THREE.Mesh(new THREE.PlaneGeometry(0.95, 0.95), fm);
+        pl.position.set(sx, 1.25, sz);
+        pl.rotation.y = ry;
+        group.add(pl);
+      }
+      fireStrips.push({ tex, ph: sx });
+      const core = new THREE.Sprite(coreMat);
+      core.scale.set(0.7, 0.7, 1);
+      core.position.set(sx, 1.1, sz);
+      group.add(core);
+      const sm = new THREE.Sprite(smokeMat.clone());
+      sm.scale.set(1.2, 1.2, 1);
+      sm.position.set(sx, 2.2, sz);
+      sm.userData = { sx, sz };
+      barrelSmokes.push(sm);
+      group.add(sm);
+      const li = new THREE.PointLight('#ff8a3a', 8, 14, 1.8);
+      li.position.set(sx, 1.6, sz);
+      li.userData = { ph: sx + sz };
+      group.add(li);
+      barrelLights.push(li);
+      addCollider(sx, sz, 0.6, 0.6);
+    }
+    const bowlM = new THREE.MeshStandardMaterial({ color: '#2a2a2e', roughness: 0.6, metalness: 0.6 });
+    for (const [ix, iz] of [[6, -24], [12, -30]] as Array<[number, number]>) {
+      const [sx, sz] = nudgeFree(ix, iz, 1.2);
+      const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.24, 0.3, 10), bowlM);
+      bowl.position.set(sx, 0.75, sz);
+      group.add(bowl);
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 0.6, 8), bowlM);
+      pole.position.set(sx, 0.3, sz);
+      group.add(pole);
+      for (const ry of [0.2, 0.2 + Math.PI / 2]) {
+        const fq = makeFireQuad(0.85, 1.05);
+        fq.position.set(sx, 1.35, sz);
+        fq.rotation.y = ry;
+        group.add(fq);
+        fireMats.push(fq.material as THREE.ShaderMaterial);
+      }
+      const li = new THREE.PointLight('#ffa04a', 6, 11, 1.8);
+      li.position.set(sx, 1.6, sz);
+      li.userData = { ph: sx * 2 };
+      group.add(li);
+      barrelLights.push(li);
+      addCollider(sx, sz, 0.5, 0.5);
+    }
   }
 
   // transformer substation booth
@@ -1104,11 +1414,18 @@ function buildCity(): ZoneData {
         const H = (u.fly as boolean) ? 7 : 10;
         pg.position.set((u.cx as number) + Math.cos(a) * R, H + Math.sin(t * 0.9 + (u.ph as number)) * 1.5, (u.cz as number) + Math.sin(a) * R);
         pg.rotation.y = -a;
+        const flap = Math.sin(t * 14 + (u.ph as number)) > 0;
+        (u.w1 as THREE.Object3D).visible = flap;
+        (u.w2 as THREE.Object3D).visible = !flap;
       } else if ((u.peck as number) > 0) {
         u.peck = (u.peck as number) - dt;
         pg.rotation.x = 0.5;
+        (u.w1 as THREE.Object3D).visible = true;
+        (u.w2 as THREE.Object3D).visible = false;
       } else {
         pg.rotation.x = 0;
+        (u.w1 as THREE.Object3D).visible = true;
+        (u.w2 as THREE.Object3D).visible = false;
         u.wt = (u.wt as number) - dt;
         if ((u.wt as number) <= 0) {
           u.wt = 1 + Math.random() * 3;
@@ -1124,6 +1441,60 @@ function buildCity(): ZoneData {
         const pdz = pg.position.z - (u.cz as number);
         if (pdx * pdx + pdz * pdz > 110) u.dir = Math.atan2(-pdz, -pdx);
       }
+    }
+    for (const bf of butterflies) {
+      const u = bf.userData;
+      const ph = u.ph as number;
+      bf.position.set((u.cx as number) + Math.sin(t * 0.9 + ph) * 2.5, 1 + Math.sin(t * 2.2 + ph * 2) * 0.5, (u.cz as number) + Math.cos(t * 0.7 + ph) * 2.5);
+    }
+    for (const b of bats) {
+      const a = t * 0.9 + (b.userData.ph as number);
+      b.position.set(-38 + Math.cos(a) * 6, 7 + Math.sin(t * 2 + (b.userData.ph as number)) * 0.8, -64 + Math.sin(a) * 6);
+      b.rotation.y = -a + Math.PI / 2;
+    }
+    {
+      const u = ratMesh.userData;
+      const wps = [[0, 0], [5, 1], [4, 5], [-1, 4]];
+      const wp = wps[u.wp as number];
+      const tx = (u.cx as number) + wp[0];
+      const tz = (u.cz as number) + wp[1];
+      const dx = tx - ratMesh.position.x;
+      const dz = tz - ratMesh.position.z;
+      const d = Math.hypot(dx, dz);
+      if (d < 0.4) {
+        u.wp = ((u.wp as number) + 1) % wps.length;
+      } else {
+        ratMesh.position.x += (dx / d) * dt * 3;
+        ratMesh.position.z += (dz / d) * dt * 3;
+        ratMesh.rotation.y = Math.atan2(dx, dz);
+      }
+      ratMesh.position.y = 0.25 + Math.abs(Math.sin(t * 12)) * 0.06;
+    }
+    for (const fs of fireStrips) {
+      fs.tex.offset.x = (Math.floor(t * 12 + fs.ph) % 11) / 11;
+    }
+    for (const fm of fireMats) tickFire(fm, dt);
+    for (const li of barrelLights) {
+      const ph = li.userData.ph as number;
+      li.intensity = 7 + Math.sin(t * 13 + ph) * 2 + Math.sin(t * 31 + ph * 2) * 1.2;
+    }
+    for (const sm of barrelSmokes) {
+      const u = sm.userData;
+      sm.position.y += dt * 0.9;
+      if (sm.position.y > 4.5) sm.position.set(u.sx as number, 1.8, u.sz as number);
+      (sm.material as THREE.SpriteMaterial).opacity = 0.35 * (1 - (sm.position.y - 1.8) / 3);
+    }
+    {
+      const glint = group.userData.coinGlint as THREE.Sprite | undefined;
+      if (glint) {
+        const gm = glint.material as THREE.SpriteMaterial;
+        gm.rotation += dt * 2;
+        if (gm.map) gm.map.offset.x = (Math.floor(t * 6) % 8) / 8;
+        glint.scale.set(0.4 + Math.sin(t * 4) * 0.12, 0.4 + Math.sin(t * 4) * 0.12, 1);
+      }
+    }
+    for (const sh of shades) {
+      sh.position.y = 0.9 + Math.sin(t * 1.3 + sh.position.x) * 0.12;
     }
     for (const p of papers) {
       const u = p.userData;
@@ -1260,6 +1631,7 @@ function buildCity(): ZoneData {
     }
   };
 
+  const shades: THREE.Mesh[] = [];
   // the watcher: a still figure at the end of the street (blackout only)
   let watcher: THREE.Group;
   const eyePairs: THREE.Sprite[] = [];
@@ -1290,10 +1662,25 @@ function buildCity(): ZoneData {
     }
   }
 
+  {
+    const shadeMat = new THREE.MeshBasicMaterial({ map: pixelTexture('tx_enemy_walk_1'), transparent: true, side: THREE.DoubleSide, color: '#777788' });
+    const shadeMat2 = new THREE.MeshBasicMaterial({ map: pixelTexture('tx_enemy_walk_2'), transparent: true, side: THREE.DoubleSide, color: '#777788' });
+    const shadeGeo = new THREE.PlaneGeometry(1.5, 1.1);
+    const s1 = new THREE.Mesh(shadeGeo, shadeMat);
+    s1.position.set(-6, 0.9, -70);
+    const s2 = new THREE.Mesh(shadeGeo, shadeMat2);
+    s2.position.set(0.5, 0.9, -74);
+    s1.visible = false;
+    s2.visible = false;
+    group.add(s1, s2);
+    shades.push(s1, s2);
+  }
+
   let blackoutOn = false;
   group.userData.blackout = (on: boolean): void => {
     blackoutOn = on;
     watcher.visible = on;
+    for (const s of shades) s.visible = on;
     for (const e of eyePairs) e.visible = on;
     lampGlowMat.opacity = on ? 0 : 0.6;
     lampHeadMat.emissiveIntensity = on ? 0.1 : 2.6;
