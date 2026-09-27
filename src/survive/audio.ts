@@ -20,6 +20,8 @@ export class AudioEngine {
   private engOsc: OscillatorNode[] = [];
   private engGain: GainNode | null = null;
   private engFilter: BiquadFilterNode | null = null;
+  private engSrc: AudioBufferSourceNode | null = null;
+  private crowdGain: GainNode | null = null;
   private pulseTimer: number | null = null;
   mood: Mood = 'calm';
   private sirenNodes: AudioNode[] = [];
@@ -170,6 +172,30 @@ export class AudioEngine {
     this.engFilter.frequency.setTargetAtTime(220 + rpm * 900, t, 0.2);
     this.engOsc[0]?.frequency.setTargetAtTime(55 + rpm * 90, t, 0.15);
     this.engOsc[1]?.frequency.setTargetAtTime(27 + rpm * 45, t, 0.15);
+    try {
+      if (!this.engSrc && this.ctx && this.master && audible && vol > 0.005) {
+        this.ensureSample('engine');
+        const buf = this.sfxBufs.get('engine');
+        if (buf) {
+          const src = this.ctx.createBufferSource();
+          src.buffer = buf;
+          src.loop = true;
+          const g = this.ctx.createGain();
+          g.gain.value = 0;
+          src.connect(g).connect(this.master);
+          src.start();
+          (src as unknown as { _g: GainNode })._g = g;
+          this.engSrc = src;
+        }
+      }
+      if (this.engSrc) {
+        const g = (this.engSrc as unknown as { _g: GainNode })._g;
+        g.gain.setTargetAtTime(audible ? vol * 1.4 : 0, t, 0.2);
+        this.engSrc.playbackRate.setTargetAtTime(0.75 + rpm * 0.8, t, 0.2);
+      }
+    } catch {
+      /* ignore */
+    }
   }
 
   // ---------------- one-shots ----------------
@@ -198,6 +224,10 @@ export class AudioEngine {
 
   footstep(run: boolean, surface: 'asphalt' | 'dirt' | 'wood' | 'metal' = 'asphalt'): void {
     if (!this.ctx || !this.master || this.muted) return;
+    if (surface === 'asphalt' || surface === 'dirt') {
+      const heard = this.playSample(surface === 'dirt' ? 'step_gr' : 'step_as', run ? 0.3 : 0.18, 0.92 + Math.random() * 0.16);
+      if (heard) return;
+    }
     try {
       const ctx = this.ctx;
       const dur = 0.09;
@@ -224,6 +254,7 @@ export class AudioEngine {
       const ctx = this.ctx;
       const vol = enemy ? gainForDistance(dist, 40) * 0.5 : 0.6;
       if (vol < 0.02) return;
+      this.playSample('gunshot', vol * (enemy ? 0.8 : 0.7), 0.94 + Math.random() * 0.12, false, 0.005, enemy ? 2500 : 0);
       const dur = 0.22;
       const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * dur), ctx.sampleRate);
       const d = buf.getChannelData(0);
@@ -263,6 +294,7 @@ export class AudioEngine {
     window.setTimeout(() => this.blip(880, 0.09, 0.07, 'square'), 110);
   }
   doorVan(): void {
+    this.playSample('creak', 0.18, 0.9 + Math.random() * 0.2);
     this.blip(140, 0.35, 0.25, 'sawtooth', 60);
     window.setTimeout(() => this.blip(90, 0.15, 0.3, 'square', 50), 280);
   }
@@ -395,6 +427,7 @@ export class AudioEngine {
       g.gain.value = 0.25;
       src.connect(f).connect(g).connect(this.master);
       src.start();
+      this.playSample('creak', 0.2, 0.9 + Math.random() * 0.2);
       window.setTimeout(() => this.blip(95, 0.14, 0.28, 'square', 55), 380);
     } catch {
       /* ignore */
@@ -403,7 +436,7 @@ export class AudioEngine {
 
 
   // ---------------- sample-based SFX (GitHub) ----------------
-  private ensureSample(key: 'alarm' | 'blast_far' | 'blast_near' | 'launch' | 'rumble' | 'launch2' | 'blast_alt' | 'deepboom'): void {
+  private ensureSample(key: 'alarm' | 'blast_far' | 'blast_near' | 'launch' | 'rumble' | 'launch2' | 'blast_alt' | 'deepboom' | 'night' | 'engine' | 'honk' | 'thud' | 'glass' | 'bell' | 'crowd' | 'step_as' | 'step_gr' | 'gunshot' | 'crow' | 'creak' | 'growl'): void {
     if (!this.ctx || this.sfxBufs.has(key) || this.sfxLoading.has(key)) return;
     this.sfxLoading.add(key);
     import('./assets')
@@ -428,7 +461,7 @@ export class AudioEngine {
 
   /** Play a cached sample; triggers async load on first use. Null when not ready. */
   private playSample(
-    key: 'alarm' | 'blast_far' | 'blast_near' | 'launch' | 'rumble' | 'launch2' | 'blast_alt' | 'deepboom',
+    key: 'alarm' | 'blast_far' | 'blast_near' | 'launch' | 'rumble' | 'launch2' | 'blast_alt' | 'deepboom' | 'night' | 'engine' | 'honk' | 'thud' | 'glass' | 'bell' | 'crowd' | 'step_as' | 'step_gr' | 'gunshot' | 'crow' | 'creak' | 'growl',
     vol: number,
     rate = 1,
     loop = false,
@@ -696,6 +729,88 @@ export class AudioEngine {
     const src = this.playSample('deepboom', 0.7, 0.9 + Math.random() * 0.2, false, 0.02, 700);
     if (!src) this.thump(0.6, 45);
     else this.thump(0.35, 40);
+  }
+
+  /** Night ambience bed (real loop). */
+  nightLoop(on: boolean): void {
+    if (!this.ctx || !this.master) return;
+    this.stopLoop('night');
+    if (!on) return;
+    const src = this.playSample('night', 0.13, 1, true, 3.0);
+    if (src) this.loopNodes.set('night', [src]);
+  }
+
+  /** Bazaar murmur loop with positional gain. */
+  crowdLoop(on: boolean): void {
+    if (!this.ctx || !this.master) return;
+    this.stopLoop('crowd');
+    this.crowdGain = null;
+    if (!on) return;
+    this.ensureSample('crowd');
+    const buf = this.sfxBufs.get('crowd');
+    if (!buf) {
+      this.loopTimers.set('crowd', window.setTimeout(() => this.crowdLoop(true), 1500));
+      return;
+    }
+    try {
+      const src = this.ctx.createBufferSource();
+      src.buffer = buf;
+      src.loop = true;
+      const g = this.ctx.createGain();
+      g.gain.value = 0;
+      src.connect(g).connect(this.master);
+      src.start();
+      this.crowdGain = g;
+      this.loopNodes.set('crowd', [src, g]);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  setCrowd(v: number): void {
+    if (!this.ctx || !this.crowdGain) return;
+    this.crowdGain.gain.setTargetAtTime(Math.max(0, Math.min(1, v)) * 0.16, this.ctx.currentTime, 0.5);
+  }
+
+  /** Car horn. */
+  honk(): void {
+    if (!this.ctx || !this.master || this.muted) return;
+    const src = this.playSample('honk', 0.1, 0.92 + Math.random() * 0.16);
+    if (!src) this.horn();
+  }
+
+  /** Landing / body thud. */
+  thudLand(): void {
+    if (!this.ctx || !this.master || this.muted) return;
+    const src = this.playSample('thud', 0.5, 0.9 + Math.random() * 0.2, false, 0.01, 600);
+    if (!src) this.thump(0.4, 70);
+  }
+
+  /** Glass break. */
+  glassBreak(vol = 0.5): void {
+    if (!this.ctx || !this.master || this.muted) return;
+    const src = this.playSample('glass', vol, 0.9 + Math.random() * 0.2);
+    if (!src) this.blip(1800, 0.12, vol * 0.4, 'square', 900);
+  }
+
+  /** Distant church bell. */
+  bellStrike(): void {
+    if (!this.ctx || !this.master || this.muted) return;
+    const src = this.playSample('bell', 0.2, 0.97 + Math.random() * 0.06, false, 0.01, 2500);
+    if (!src) this.blip(146, 1.5, 0.08, 'sine', 140);
+  }
+
+  /** Distant crow. */
+  crowCaw(): void {
+    if (!this.ctx || !this.master || this.muted) return;
+    this.playSample('crow', 0.09, 0.9 + Math.random() * 0.2);
+  }
+
+  /** Horror growl sting. */
+  growlSting(): void {
+    if (!this.ctx || !this.master || this.muted) return;
+    const src = this.playSample('growl', 0.5, 0.95 + Math.random() * 0.1, false, 0.2, 800);
+    if (!src) this.blip(55, 1.6, 0.2, 'sawtooth', 40);
   }
 
   /** Distant courtyard dog. */

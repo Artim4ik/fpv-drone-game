@@ -840,6 +840,75 @@ function buildCity(): ZoneData {
     addCollider(lx, lz, 6.4, 0.5);
   }
 
+  // marshrutka shuttles ping-ponging the inner roads
+  const shuttles: Array<{ g: THREE.Group; axis: 'x' | 'z'; fixed: number; from: number; to: number; s: number; dir: 1 | -1; speed: number }> = [];
+  {
+    const bodyM = new THREE.MeshStandardMaterial({ color: '#c8a03a', roughness: 0.5, metalness: 0.3 });
+    const winM = new THREE.MeshStandardMaterial({ color: '#333322', emissive: '#ffca7a', emissiveIntensity: 0.9 });
+    const mkShuttle = (axis: 'x' | 'z', fixed: number): void => {
+      const g = new THREE.Group();
+      g.add(box(bodyM, 2, 1.5, 5, 0, 1.05, 0));
+      const w1 = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 0.6), winM);
+      w1.position.set(1.01, 1.35, 0);
+      w1.rotation.y = Math.PI / 2;
+      g.add(w1);
+      const w2 = w1.clone();
+      w2.position.x = -1.01;
+      w2.rotation.y = -Math.PI / 2;
+      g.add(w2);
+      for (const [wx, wz] of [[-0.9, 1.6], [0.9, 1.6], [-0.9, -1.6], [0.9, -1.6]]) {
+        const wheel = new THREE.Mesh(geoCyl, tireMat);
+        wheel.rotation.z = Math.PI / 2;
+        wheel.scale.set(0.66, 0.3, 0.66);
+        wheel.position.set(wx, 0.33, wz);
+        g.add(wheel);
+      }
+      const hg = new THREE.Sprite(headGlowMat);
+      hg.scale.set(1.2, 1.2, 1);
+      hg.position.set(0, 0.8, 2.6);
+      g.add(hg);
+      group.add(g);
+      shuttles.push({ g, axis, fixed, from: -88, to: 88, s: axis === 'x' ? -30 : 20, dir: 1, speed: 9 + rnd() * 3 });
+    };
+    mkShuttle('z', 0);
+    mkShuttle('x', 0);
+  }
+
+  // stray dog + courtyard cat
+  let dog: THREE.Group;
+  {
+    dog = new THREE.Group();
+    const furM = new THREE.MeshStandardMaterial({ color: '#6e5638', roughness: 1 });
+    dog.add(box(furM, 0.55, 0.3, 0.28, 0, 0.42, 0));
+    dog.add(box(furM, 0.22, 0.24, 0.22, 0, 0.62, 0.36));
+    dog.add(box(new THREE.MeshStandardMaterial({ color: '#2a2a2a', roughness: 1 }), 0.1, 0.08, 0.12, 0, 0.58, 0.5));
+    const legs: THREE.Object3D[] = [];
+    for (const [lx, lz] of [[-0.18, 0.18], [0.18, 0.18], [-0.18, -0.18], [0.18, -0.18]]) {
+      const leg = box(furM, 0.09, 0.34, 0.09, lx, 0.17, lz);
+      dog.add(leg);
+      legs.push(leg);
+    }
+    const tail = box(furM, 0.06, 0.06, 0.34, 0, 0.55, -0.32);
+    tail.rotation.x = -0.5;
+    dog.add(tail);
+    const [dxx, dzz] = nudgeFree(12, 58, 1);
+    dog.position.set(dxx, 0, dzz);
+    dog.userData = { cx: dxx, cz: dzz, wt: 1, dir: 0, legs };
+    group.add(dog);
+    const cat = new THREE.Group();
+    const catM = new THREE.MeshStandardMaterial({ color: '#3a3a40', roughness: 1 });
+    cat.add(box(catM, 0.34, 0.2, 0.22, 0, 0.1, 0));
+    cat.add(box(catM, 0.18, 0.18, 0.18, 0, 0.26, 0.12));
+    cat.add(box(catM, 0.06, 0.1, 0.04, -0.05, 0.38, 0.12));
+    cat.add(box(catM, 0.06, 0.1, 0.04, 0.05, 0.38, 0.12));
+    const [ctx, ctz] = nudgeFree(44, 54, 0.8);
+    group.add(box(crateMat, 0.7, 0.7, 0.7, ctx, 0.35, ctz));
+    cat.position.set(ctx, 0.7, ctz);
+    cat.rotation.y = 0.7;
+    group.add(cat);
+    addCollider(ctx, ctz, 0.8, 0.8);
+  }
+
   // transformer substation booth
   {
     const [tx, tz] = nudgeFree(40, -40, 2.4);
@@ -933,8 +1002,9 @@ function buildCity(): ZoneData {
     const paperM = new THREE.MeshStandardMaterial({ color: '#c8c4b4', roughness: 1, side: THREE.DoubleSide });
     for (let i = 0; i < 14; i++) {
       const p = new THREE.Mesh(new THREE.PlaneGeometry(0.32, 0.42), paperM);
-      p.position.set((rnd() - 0.5) * 160, 0.2 + rnd() * 1.6, (rnd() - 0.5) * 160);
-      p.userData = { vx: 1.5 + rnd() * 2, vy: 0.4 + rnd() * 0.8, ph: rnd() * 6.28 };
+      const [ppx, ppz] = nudgeFree((rnd() - 0.5) * 160, (rnd() - 0.5) * 160, 0.6);
+      p.position.set(ppx, 0.2 + rnd() * 1.6, ppz);
+      p.userData = { vx: 1.5 + rnd() * 2, vy: 0.4 + rnd() * 0.8, ph: rnd() * 6.28, mode: 'fly', rest: 0 };
       group.add(p);
       papers.push(p);
     }
@@ -976,7 +1046,7 @@ function buildCity(): ZoneData {
 
   // puddles on the roads
   {
-    const pudM = new THREE.MeshStandardMaterial({ color: '#141a22', roughness: 0.12, metalness: 0.6 });
+    const pudM = new THREE.MeshStandardMaterial({ color: '#2a3542', roughness: 0.08, metalness: 0.15 });
     const spots: Array<[number, number, number]> = [[2, -30, 2.4], [-2.5, 25, 1.8], [0.5, 70, 3], [-56, -10, 2.2], [30, 2.5, 2.6], [60, -2, 1.7], [-30, -56, 2.1]];
     for (const [px, pz, pr] of spots) {
       const p = new THREE.Mesh(new THREE.CircleGeometry(pr, 18), pudM);
@@ -1027,9 +1097,12 @@ function buildCity(): ZoneData {
     for (const c of cloths) c.rotation.x = Math.sin(t * 2.1 + (c.userData.ph as number)) * 0.22;
     for (const pg of pigeons) {
       const u = pg.userData;
-      if (u.fly as boolean) {
-        const a = t * 0.5 + (u.ph as number);
-        pg.position.set((u.cx as number) + Math.cos(a) * 14, 7 + Math.sin(t * 0.9 + (u.ph as number)) * 1.5, (u.cz as number) + Math.sin(a) * 14);
+      const flying = (u.fly as boolean) || blackoutOn;
+      if (flying) {
+        const a = t * (blackoutOn ? 1.1 : 0.5) + (u.ph as number);
+        const R = (u.fly as boolean) ? 14 : 22;
+        const H = (u.fly as boolean) ? 7 : 10;
+        pg.position.set((u.cx as number) + Math.cos(a) * R, H + Math.sin(t * 0.9 + (u.ph as number)) * 1.5, (u.cz as number) + Math.sin(a) * R);
         pg.rotation.y = -a;
       } else if ((u.peck as number) > 0) {
         u.peck = (u.peck as number) - dt;
@@ -1054,13 +1127,58 @@ function buildCity(): ZoneData {
     }
     for (const p of papers) {
       const u = p.userData;
-      p.position.x += (u.vx as number) * dt;
-      p.position.y += Math.sin(t * 2 + (u.ph as number)) * (u.vy as number) * dt;
-      if (p.position.y < 0.05) p.position.y = 0.05;
-      if (p.position.y > 3) p.position.y = 3;
-      p.rotation.x += dt * 3;
-      p.rotation.y += dt * 2.2;
-      if (p.position.x > 100) p.position.x = -100;
+      if ((u.mode as string) === 'rest') {
+        u.rest = (u.rest as number) - dt * (blackoutOn ? 3 : 1);
+        if ((u.rest as number) <= 0) {
+          u.mode = 'fly';
+          p.position.y = 0.4;
+          p.position.z += (Math.random() - 0.5) * 2;
+          p.rotation.set(0, Math.random() * 6.28, 0);
+        }
+        continue;
+      }
+      const vx = (u.vx as number) * (blackoutOn ? 2.6 : 1);
+      const nx = p.position.x + vx * dt;
+      const ny = p.position.y + Math.sin(t * 2 + (u.ph as number)) * (u.vy as number) * dt;
+      const pad = 0.25;
+      let bigHit: BoxCollider | null = null;
+      let smallHit = false;
+      for (const c of colliders) {
+        if (nx > c.x0 - pad && nx < c.x1 + pad && p.position.z > c.z0 - pad && p.position.z < c.z1 + pad) {
+          if (c.x1 - c.x0 > 6 || c.z1 - c.z0 > 6) {
+            bigHit = c;
+            break;
+          } else if (p.position.y < 1.6) {
+            smallHit = true;
+            break;
+          }
+        }
+      }
+      if (bigHit) {
+        const c = bigHit;
+        const pushLeft = Math.abs(p.position.z - (c.z0 - pad));
+        const pushRight = Math.abs(c.z1 + pad - p.position.z);
+        p.position.z += (pushLeft < pushRight ? -1 : 1) * vx * dt;
+        p.position.y = Math.min(2.6, p.position.y + dt * 1.2);
+        p.rotation.x += dt * 5;
+      } else if (smallHit) {
+        u.mode = 'rest';
+        u.rest = 2 + Math.random() * 4;
+        p.position.y = 0.06;
+        p.rotation.set(-Math.PI / 2, 0, Math.random() * 6.28);
+        continue;
+      } else {
+        p.position.x = nx;
+        p.position.y = THREE.MathUtils.clamp(ny, 0.06, 3);
+        p.rotation.x += dt * 3;
+        p.rotation.y += dt * 2.2;
+      }
+      if (p.position.x > 100) {
+        p.position.x = -100;
+        u.mode = 'fly';
+      }
+      if (p.position.z > 105) p.position.z = -105;
+      if (p.position.z < -105) p.position.z = 105;
     }
     for (const m of mists) {
       m.position.x += (m.userData.sp as number) * dt;
@@ -1088,9 +1206,95 @@ function buildCity(): ZoneData {
       }
     }
     drizzleGeo.attributes.position.needsUpdate = true;
+    for (const sh of shuttles) {
+      sh.s += sh.dir * sh.speed * dt;
+      if (sh.s > sh.to) {
+        sh.s = sh.to;
+        sh.dir = -1;
+      }
+      if (sh.s < sh.from) {
+        sh.s = sh.from;
+        sh.dir = 1;
+      }
+      if (sh.axis === 'z') {
+        sh.g.position.set(sh.fixed + sh.dir * 2.5, 0, sh.s);
+        sh.g.rotation.y = sh.dir > 0 ? 0 : Math.PI;
+      } else {
+        sh.g.position.set(sh.s, 0, sh.fixed + sh.dir * 2.5);
+        sh.g.rotation.y = sh.dir > 0 ? Math.PI / 2 : -Math.PI / 2;
+      }
+    }
+    {
+      const u = dog.userData;
+      u.wt = (u.wt as number) - dt;
+      if ((u.wt as number) <= 0) {
+        u.wt = 2 + Math.random() * 4;
+        u.dir = Math.random() * Math.PI * 2;
+      }
+      const dir = u.dir as number;
+      const nx = dog.position.x + Math.cos(dir) * dt * 1.6;
+      const nz = dog.position.z + Math.sin(dir) * dt * 1.6;
+      let blocked = false;
+      for (const c of colliders) {
+        if (nx > c.x0 - 0.3 && nx < c.x1 + 0.3 && nz > c.z0 - 0.3 && nz < c.z1 + 0.3) {
+          blocked = true;
+          break;
+        }
+      }
+      if (blocked) {
+        u.dir = Math.random() * Math.PI * 2;
+      } else {
+        dog.position.x = nx;
+        dog.position.z = nz;
+      }
+      const dx = dog.position.x - (u.cx as number);
+      const dz = dog.position.z - (u.cz as number);
+      if (dx * dx + dz * dz > 900) u.dir = Math.atan2(-dz, -dx);
+      dog.position.y = Math.abs(Math.sin(t * 10)) * 0.06;
+      dog.rotation.y = -dir + Math.PI / 2;
+      const dlegs = u.legs as THREE.Object3D[];
+      dlegs[0].rotation.x = Math.sin(t * 10) * 0.5;
+      dlegs[1].rotation.x = Math.sin(t * 10 + Math.PI) * 0.5;
+      dlegs[2].rotation.x = Math.sin(t * 10 + Math.PI) * 0.5;
+      dlegs[3].rotation.x = Math.sin(t * 10) * 0.5;
+    }
   };
 
+  // the watcher: a still figure at the end of the street (blackout only)
+  let watcher: THREE.Group;
+  const eyePairs: THREE.Sprite[] = [];
+  {
+    watcher = new THREE.Group();
+    const coatM = new THREE.MeshStandardMaterial({ color: '#0c0c0e', roughness: 1 });
+    watcher.add(box(coatM, 0.44, 1.15, 0.3, 0, 1.0, 0));
+    watcher.add(box(coatM, 0.34, 0.5, 0.26, 0, 0.25, 0));
+    watcher.add(box(new THREE.MeshStandardMaterial({ color: '#8a8078', roughness: 0.9 }), 0.24, 0.26, 0.24, 0, 1.7, 0));
+    watcher.position.set(-3, 0, -72);
+    watcher.visible = false;
+    group.add(watcher);
+    group.userData.watcherPos = new THREE.Vector3(-3, 0, -72);
+    group.userData.hideWatcher = (): void => {
+      watcher.visible = false;
+    };
+    const eyeMat = new THREE.SpriteMaterial({ map: glowTexture(), color: '#c8ff5a', transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending });
+    const eyeSpots: Array<[number, number, number]> = [[-88, 1.1, 72], [-36, 1.0, -62], [-70, 1.2, -66]];
+    for (const [ex, ey, ez] of eyeSpots) {
+      for (const s of [-0.14, 0.14]) {
+        const e = new THREE.Sprite(eyeMat);
+        e.scale.set(0.22, 0.22, 1);
+        e.position.set(ex + s, ey, ez);
+        e.visible = false;
+        group.add(e);
+        eyePairs.push(e);
+      }
+    }
+  }
+
+  let blackoutOn = false;
   group.userData.blackout = (on: boolean): void => {
+    blackoutOn = on;
+    watcher.visible = on;
+    for (const e of eyePairs) e.visible = on;
     lampGlowMat.opacity = on ? 0 : 0.6;
     lampHeadMat.emissiveIntensity = on ? 0.1 : 2.6;
     for (const pl of lampLights) pl.visible = !on;

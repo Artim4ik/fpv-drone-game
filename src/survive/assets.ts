@@ -32,6 +32,19 @@ export const ASSET_URLS = {
   launch2: new URL('./assets/sfx/launch2.wav', import.meta.url).href,
   blast_alt: new URL('./assets/sfx/blast_alt.wav', import.meta.url).href,
   deepboom: new URL('./assets/sfx/deepboom.wav', import.meta.url).href,
+  night: new URL('./assets/sfx/night.wav', import.meta.url).href,
+  engine: new URL('./assets/sfx/engine.wav', import.meta.url).href,
+  honk: new URL('./assets/sfx/honk.wav', import.meta.url).href,
+  thud: new URL('./assets/sfx/thud.wav', import.meta.url).href,
+  glass: new URL('./assets/sfx/glass.wav', import.meta.url).href,
+  bell: new URL('./assets/sfx/bell.wav', import.meta.url).href,
+  crowd: new URL('./assets/sfx/crowd.wav', import.meta.url).href,
+  step_as: new URL('./assets/sfx/step_as.wav', import.meta.url).href,
+  step_gr: new URL('./assets/sfx/step_gr.wav', import.meta.url).href,
+  gunshot: new URL('./assets/sfx/gunshot.wav', import.meta.url).href,
+  crow: new URL('./assets/sfx/crow.wav', import.meta.url).href,
+  creak: new URL('./assets/sfx/creak.wav', import.meta.url).href,
+  growl: new URL('./assets/sfx/growl.wav', import.meta.url).href,
 } as const;
 
 export type AssetKey = keyof typeof ASSET_URLS;

@@ -165,6 +165,7 @@ export class Game {
   private raidFlags = new Set<string>();
   private shahedSpr: THREE.Sprite | null = null;
   private flashSpr: THREE.Sprite | null = null;
+  private playerTurn = 0;
   private messageT = 0;
   private prompt: string | null = null;
   private hurtT = -99;
@@ -555,6 +556,8 @@ export class Game {
   private startCityFx(): void {
     this.audio.rainLoop(true, 0.05);
     this.audio.windLoop(true, 0.07);
+    this.audio.nightLoop(true);
+    this.audio.crowdLoop(true);
     this.nextRaidAt = this.time + 65 + Math.random() * 40;
     this.raidActive = false;
     this.raidFlags.clear();
@@ -581,6 +584,8 @@ export class Game {
     try {
       this.audio.rainLoop(false);
       this.audio.windLoop(false);
+      this.audio.nightLoop(false);
+      this.audio.crowdLoop(false);
       this.audio.airRaidLoop(false);
       this.audio.horrorPad(false);
       this.audio.heartbeatLoop(false);
@@ -615,6 +620,12 @@ export class Game {
     if (r < dt * 0.06) this.audio.dogBark();
     else if (r < dt * 0.075) this.audio.thunderFar(0.25);
     else if (r < dt * 0.083) this.audio.launchDistant();
+    else if (r < dt * 0.1) this.audio.crowCaw();
+    else if (r < dt * 0.112) this.audio.honk();
+    else if (r < dt * 0.116) this.audio.bellStrike();
+    const mdx = this.pos.x - 8;
+    const mdz = this.pos.z + 28;
+    this.audio.setCrowd(1 / (1 + Math.hypot(mdx, mdz) / 16));
     if (!this.raidActive) {
       if (this.time >= this.nextRaidAt) {
         this.raidActive = true;
@@ -624,6 +635,8 @@ export class Game {
         this.audio.airRaidLoop(true);
         this.audio.horrorPad(true);
         this.audio.rumbleLoop(true);
+        this.audio.growlSting();
+        this.audio.bellStrike();
         this.setBlackout(true);
       }
       return;
@@ -654,6 +667,10 @@ export class Game {
       this.audio.deepBoom();
       this.audio.thunderCrack(0.4);
     }
+    if (e > 22 && !F.has('gl')) {
+      F.add('gl');
+      this.audio.glassBreak(0.5);
+    }
     if (e > 24 && !F.has('so')) {
       F.add('so');
       this.audio.airRaidLoop(false);
@@ -661,6 +678,21 @@ export class Game {
     }
     if (this.flashSpr && this.flashSpr.material.opacity > 0) {
       this.flashSpr.material.opacity = Math.max(0, this.flashSpr.material.opacity - dt * 0.5);
+    }
+    try {
+      const wz = this.zone?.group.userData.watcherPos as THREE.Vector3 | undefined;
+      const hide = this.zone?.group.userData.hideWatcher as (() => void) | undefined;
+      if (wz && hide && !F.has('wch')) {
+        const wd = Math.hypot(this.pos.x - wz.x, this.pos.z - wz.z);
+        if (wd < 14) {
+          F.add('wch');
+          hide();
+          this.audio.growlSting();
+          this.showMessage('Там хтось був…', 3);
+        }
+      }
+    } catch {
+      /* ignore */
     }
     if (e > 30) {
       this.raidActive = false;
@@ -1877,6 +1909,7 @@ export class Game {
       this.vy -= 13 * dt;
       this.pos.y += this.vy * dt;
       if (this.pos.y <= gy) {
+        if (!this.grounded && this.vy < -6) this.audio.thudLand();
         this.pos.y = gy;
         this.vy = 0;
         this.grounded = true;
@@ -1903,7 +1936,8 @@ export class Game {
     else if (this.moveSpeed > 5) this.anim = 'run';
     else if (this.moveSpeed > 0.6) this.anim = 'walk';
     else this.anim = 'idle';
-    this.player.setPose(this.anim, this.time, Math.min(1, this.moveSpeed / 6));
+    this.playerTurn *= Math.max(0, 1 - dt * 4);
+    this.player.setPose(this.anim, this.time, Math.min(1, this.moveSpeed / 6), this.playerTurn);
     this.player.group.position.copy(this.pos);
     if (this.moveSpeed > 0.5) {
       const targetYaw = Math.atan2(mx, mz);
@@ -1911,8 +1945,14 @@ export class Game {
       while (dy > Math.PI) dy -= Math.PI * 2;
       while (dy < -Math.PI) dy += Math.PI * 2;
       this.player.group.rotation.y += dy * Math.min(1, dt * 10);
+      this.playerTurn = THREE.MathUtils.clamp(dy / Math.max(dt, 1e-3) / 6, -1, 1);
     } else if (this.aiming) {
-      this.player.group.rotation.y = this.camYaw + Math.PI;
+      const aYaw = this.camYaw + Math.PI;
+      let ady = aYaw - this.player.group.rotation.y;
+      while (ady > Math.PI) ady -= Math.PI * 2;
+      while (ady < -Math.PI) ady += Math.PI * 2;
+      this.player.group.rotation.y += ady * Math.min(1, dt * 8);
+      this.playerTurn = THREE.MathUtils.clamp(ady / Math.max(dt, 1e-3) / 6, -1, 1);
     }
 
     // reload key

@@ -49,3 +49,15 @@ Game SFX (Pixabay-sourced, royalty-free), converted to mono WAV:
 - `sfx/launch2.wav` (from `audio/heavy-missile-launch-213841.mp3`, 16kHz) — distant missile launch
 - `sfx/blast_alt.wav` (from `audio/distant-explosion-edited.wav`, 22050Hz) — blast variant
 - `sfx/deepboom.wav` (from `audio/nuke-333673.mp3`, 3s cut, 11025Hz) — deep detonation boom
+
+## godotengine/godot-demo-projects (MIT) — https://github.com/godotengine/godot-demo-projects
+- `sfx/night.wav` (from `3d/truck_town/town/sound/mood_night.ogg`, 3.1s loop, 16kHz) — night ambience bed
+- `sfx/engine.wav` (from `3d/truck_town/vehicles/engine.wav`, loop, 16kHz) — vehicle engine
+- `sfx/honk.wav` (from `3d/truck_town/vehicles/honk_1.wav`, 16kHz) — car horn
+- `sfx/thud.wav` (from `3d/truck_town/vehicles/impact_2.wav`, 16kHz) — landing/body thud
+- `sfx/glass.wav` (from `audio/audio_effects/sfx/glass_breaking.wav`, 22050Hz) — glass break
+
+## Offline DSP synthesis (this repo, no external source)
+numpy-synthesized one-shots/loops: `bell.wav` (church bell partials), `crowd.wav`
+(bazaar murmur), `step_as.wav` / `step_gr.wav` (footsteps), `gunshot.wav`,
+`crow.wav`, `creak.wav` (door), `growl.wav` (horror FM sting).

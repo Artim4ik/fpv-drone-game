@@ -17,7 +17,7 @@ export interface Humanoid {
   legL: THREE.Object3D;
   legR: THREE.Object3D;
   rifle: THREE.Object3D | null;
-  setPose: (pose: PoseState, t: number, moving: number) => void;
+  setPose: (pose: PoseState, t: number, moving: number, turn?: number) => void;
 }
 
 const SKIN = ['#c9a184', '#b08a68', '#d8b494', '#9c7a5c'];
@@ -251,11 +251,13 @@ export function makeHumanoid(kind: ModelKind, seed = 1, armed = false): Humanoid
     g.add(rifle);
   }
 
-  const setPose = (pose: PoseState, t: number, moving: number): void => {
+  const setPose = (pose: PoseState, t: number, moving: number, turn = 0): void => {
     const w = t * (6.5 + moving * 4.5);
     const s1 = Math.sin(w);
     const s2 = Math.sin(w + Math.PI);
     const amp = 0.62 * moving;
+    const turnK = Math.min(1, Math.abs(turn));
+    const ampT = amp * (1 - turnK * 0.45);
     const breathe = Math.sin(t * 2.2);
     // reset shared channels
     g.rotation.x = 0;
@@ -332,13 +334,13 @@ export function makeHumanoid(kind: ModelKind, seed = 1, armed = false): Humanoid
     }
     // walk / run / idle / guard
     const runK = moving > 0.7 ? (moving - 0.7) / 0.3 : 0;
-    legL.rotation.x = s1 * amp;
-    legR.rotation.x = s2 * amp;
+    legL.rotation.x = s1 * ampT;
+    legR.rotation.x = s2 * ampT;
     // knee illusion: trailing leg shortens a touch
     legL.scale.y = 1 - Math.max(0, -s1) * 0.06 * moving;
     legR.scale.y = 1 - Math.max(0, -s2) * 0.06 * moving;
-    armL.rotation.x = s2 * amp * 0.9;
-    armR.rotation.x = s1 * amp * 0.9;
+    armL.rotation.x = s2 * ampT * 0.9;
+    armR.rotation.x = s1 * ampT * 0.9;
     armL.rotation.z = 0.07 + runK * 0.05;
     armR.rotation.z = -0.07 - runK * 0.05;
     if (pose === 'guard') {
@@ -346,10 +348,11 @@ export function makeHumanoid(kind: ModelKind, seed = 1, armed = false): Humanoid
       armR.rotation.x = -0.55 - breathe * 0.02;
     }
     // hips + torso counter-sway, run lean
-    g.rotation.z = s1 * 0.035 * moving;
-    torso.rotation.y = s1 * 0.09 * moving;
+    g.rotation.z = s1 * 0.035 * moving + turn * 0.12;
+    torso.rotation.y = s1 * 0.09 * moving - turn * 0.35;
     torso.rotation.x = -0.05 * moving - runK * 0.14;
     headG.rotation.x = 0.07 * moving + Math.sin(w * 2) * 0.015 * moving;
+    headG.rotation.y = -turn * 0.45 * moving;
     if (moving < 0.05) {
       // idle: weight shift + look around
       g.rotation.z = Math.sin(t * 0.5 + seed) * 0.02;
@@ -367,6 +370,14 @@ export function makeHumanoid(kind: ModelKind, seed = 1, armed = false): Humanoid
   };
 
   return { group: g, head: headG, torso, armL, armR, legL, legR, rifle, setPose };
+}
+
+/** Shortest-arc yaw step limited by maxStep (smooth turns, no snaps). */
+export function turnToward(cur: number, target: number, maxStep: number): number {
+  let d = target - cur;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  return cur + THREE.MathUtils.clamp(d, -maxStep, maxStep);
 }
 
 const _steerTmp = new THREE.Vector3();
@@ -422,6 +433,8 @@ export class Civilian {
   stateT = 0;
   stallT = 0;
   yaw = 0;
+  prevYaw = 0;
+  turnSm = 0;
   private seed: number;
 
   constructor(loop: THREE.Vector3[], seed: number, scene: THREE.Object3D, post: THREE.Vector3 | null = null) {
@@ -449,11 +462,14 @@ export class Civilian {
     this.stateT += dt;
     const hd = this.humanoid;
     let moving = 0;
+    const turnInst = THREE.MathUtils.clamp((this.yaw - this.prevYaw) / Math.max(dt, 1e-3) / 5, -1, 1);
+    this.prevYaw = this.yaw;
+    this.turnSm += (turnInst - this.turnSm) * Math.min(1, dt * 8);
     const dangerDist = danger ? this.pos.distanceTo(danger) : 999;
 
     switch (this.state) {
       case 'idle':
-        hd.setPose('idle', t + this.seed, 0);
+        hd.setPose('idle', t + this.seed, 0, this.turnSm);
         if (this.stateT > 2 + (this.seed % 4)) {
           this.state = 'walk';
           this.stateT = 0;
@@ -466,8 +482,8 @@ export class Civilian {
         if (before - remain < this.speed * dt * 0.25) this.stallT += dt;
         else this.stallT = 0;
         moving = 0.6;
-        this.yaw = Math.atan2(target.x - this.pos.x, target.z - this.pos.z);
-        hd.setPose('walk', t + this.seed, moving);
+        this.yaw = turnToward(this.yaw, Math.atan2(target.x - this.pos.x, target.z - this.pos.z), dt * 6);
+        hd.setPose('walk', t + this.seed, moving, this.turnSm);
         if (this.post) {
           if (remain < 0.4) {
             this.state = 'idle';
@@ -484,9 +500,9 @@ export class Civilian {
         break;
       }
       case 'react':
-        hd.setPose('idle', t + this.seed, 0);
+        hd.setPose('idle', t + this.seed, 0, this.turnSm);
         // stare at danger
-        if (danger) this.yaw = Math.atan2(danger.x - this.pos.x, danger.z - this.pos.z);
+        if (danger) this.yaw = turnToward(this.yaw, Math.atan2(danger.x - this.pos.x, danger.z - this.pos.z), dt * 6);
         if (this.stateT > 0.9) {
           this.state = dangerDist < 14 ? 'flee' : 'resume';
           this.stateT = 0;
@@ -496,10 +512,10 @@ export class Civilian {
         if (danger) {
           const away = new THREE.Vector3(this.pos.x - danger.x, 0, this.pos.z - danger.z).normalize().multiplyScalar(10).add(this.pos);
           steerToward(this.pos, away, 3.4, dt, colliders);
-          this.yaw = Math.atan2(away.x - this.pos.x, away.z - this.pos.z);
+          this.yaw = turnToward(this.yaw, Math.atan2(away.x - this.pos.x, away.z - this.pos.z), dt * 6);
         }
         moving = 1;
-        hd.setPose('run', t + this.seed, moving);
+        hd.setPose('run', t + this.seed, moving, this.turnSm);
         if (this.stateT > 3.5 || dangerDist > 30) {
           this.state = 'hide';
           this.stateT = 0;
@@ -507,14 +523,14 @@ export class Civilian {
         break;
       }
       case 'hide':
-        hd.setPose('crouch', t + this.seed, 0);
+        hd.setPose('crouch', t + this.seed, 0, this.turnSm);
         if (this.stateT > 5 && dangerDist > 22) {
           this.state = 'resume';
           this.stateT = 0;
         }
         break;
       case 'resume':
-        hd.setPose('idle', t + this.seed, 0);
+        hd.setPose('idle', t + this.seed, 0, this.turnSm);
         if (this.stateT > 1) {
           // rejoin nearest loop point
           let best = 0;
@@ -624,7 +640,7 @@ export class Hostile {
           this.wanderTarget.set(this.home.x + (Math.random() - 0.5) * 24, 0, this.home.z + (Math.random() - 0.5) * 24);
         }
         steerToward(this.pos, this.wanderTarget, 1.6, dt, colliders);
-        this.yaw = Math.atan2(this.wanderTarget.x - this.pos.x, this.wanderTarget.z - this.pos.z);
+        this.yaw = turnToward(this.yaw, Math.atan2(this.wanderTarget.x - this.pos.x, this.wanderTarget.z - this.pos.z), dt * 5);
         hd.setPose('walk', t, 0.6);
         if (seesPlayer) {
           this.state = 'alert';
@@ -633,7 +649,7 @@ export class Hostile {
         break;
       }
       case 'alert':
-        this.yaw = Math.atan2(this.lastKnown.x - this.pos.x, this.lastKnown.z - this.pos.z);
+        this.yaw = turnToward(this.yaw, Math.atan2(this.lastKnown.x - this.pos.x, this.lastKnown.z - this.pos.z), dt * 5);
         hd.setPose('guard', t, 0);
         if (this.stateT > 0.7) {
           this.state = seesPlayer ? 'engage' : 'investigate';
@@ -642,7 +658,7 @@ export class Hostile {
         break;
       case 'investigate': {
         const remain = steerToward(this.pos, this.lastKnown, 2.6, dt, colliders);
-        this.yaw = Math.atan2(this.lastKnown.x - this.pos.x, this.lastKnown.z - this.pos.z);
+        this.yaw = turnToward(this.yaw, Math.atan2(this.lastKnown.x - this.pos.x, this.lastKnown.z - this.pos.z), dt * 5);
         hd.setPose('walk', t, 0.8);
         if (seesPlayer) {
           this.state = 'engage';
@@ -654,7 +670,7 @@ export class Hostile {
         break;
       }
       case 'engage': {
-        this.yaw = Math.atan2(playerPos.x - this.pos.x, playerPos.z - this.pos.z);
+        this.yaw = turnToward(this.yaw, Math.atan2(playerPos.x - this.pos.x, playerPos.z - this.pos.z), dt * 5);
         hd.setPose('aim', t, 0);
         // strafe a bit
         if (Math.random() < dt * 0.7) {
@@ -691,7 +707,7 @@ export class Hostile {
       }
       case 'reposition': {
         const remain = steerToward(this.pos, this.wanderTarget, 3.2, dt, colliders);
-        this.yaw = Math.atan2(this.wanderTarget.x - this.pos.x, this.wanderTarget.z - this.pos.z);
+        this.yaw = turnToward(this.yaw, Math.atan2(this.wanderTarget.x - this.pos.x, this.wanderTarget.z - this.pos.z), dt * 5);
         hd.setPose('run', t, 1);
         if (remain < 1.2 || this.stateT > 5) {
           this.state = seesPlayer ? 'engage' : 'investigate';
