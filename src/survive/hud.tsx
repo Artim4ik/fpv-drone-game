@@ -222,7 +222,8 @@ export default function HudView(props: HudViewProps) {
   const cinematic = hud.chapter === 'minibus' || hud.chapter === 'transport';
   return (
     <div className="gc-hud">
-      {hud.fade !== 'none' && <div className="gc-fade" />}
+      {hud.fade === 'out' && <div key="fout" className="gc-fade" />}
+      {hud.fade === 'in' && <div key="fin" className="gc-fade gc-fade--in" />}
       {hud.hurtT > 0 && <div key={hud.hurtT} className="gc-hurt" />}
       {hud.health < 32 && !hud.dead && <div className="gc-lowhp" />}
       {cinematic && (

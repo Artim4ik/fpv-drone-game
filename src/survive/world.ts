@@ -602,10 +602,10 @@ function buildCity(): ZoneData {
   };
 
   const hotspots = [
-    new THREE.Vector3(8.5, 0, -20),
-    new THREE.Vector3(10, 0, -30),
-    new THREE.Vector3(-80, 0, -50),
-    new THREE.Vector3(50, 0, 8),
+    new THREE.Vector3(2, 0, -18),
+    new THREE.Vector3(2, 0, -30),
+    new THREE.Vector3(-58, 0, -50),
+    new THREE.Vector3(56, 0, 8),
   ];
 
   return {

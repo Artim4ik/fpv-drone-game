@@ -37,44 +37,59 @@ function buildMinibusMesh(): VanRig {
   const tireMat = new THREE.MeshStandardMaterial({ color: '#131313', roughness: 0.95 });
   const hubMat = new THREE.MeshStandardMaterial({ color: '#8c8c88', roughness: 0.4, metalness: 0.7 });
 
-  // main hull: lower + upper + nose taper
-  const lower = new THREE.Mesh(new THREE.BoxGeometry(2.0, 1.05, 5.9), paint);
-  lower.position.y = 0.95;
-  const upper = new THREE.Mesh(new THREE.BoxGeometry(1.96, 0.95, 5.3), paint);
-  upper.position.set(0, 1.95, -0.25);
-  const nose = new THREE.Mesh(new THREE.BoxGeometry(1.96, 0.7, 0.9), paint);
-  nose.position.set(0, 1.05, 3.15);
-  body.add(lower, upper, nose);
-  for (const m of [lower, upper, nose]) {
+  // hollow shell: floor pan + side walls + roof + hood + rear (real cabin inside)
+  const shellPanels: THREE.Mesh[] = [];
+  const panel = (w: number, h: number, d: number, x: number, y: number, z: number, mat: THREE.Material = paint): THREE.Mesh => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+    m.position.set(x, y, z);
     m.castShadow = true;
     m.receiveShadow = true;
+    shellPanels.push(m);
+    body.add(m);
+    return m;
+  };
+  const glass = (w: number, h: number, d: number, x: number, y: number, z: number): THREE.Mesh => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), glassMat);
+    m.position.set(x, y, z);
+    body.add(m);
+    return m;
+  };
+  // floor + hood + roof + rear
+  panel(1.9, 0.15, 5.6, 0, 0.62, -0.1, trimMat);
+  panel(1.96, 0.7, 0.9, 0, 1.05, 3.15); // hood (was: nose)
+  panel(1.96, 0.12, 5.1, 0, 2.4, -0.35); // roof
+  panel(1.96, 1.7, 0.1, 0, 1.55, -2.92); // rear doors
+  glass(0.7, 0.5, 0.04, -0.45, 1.85, -2.98);
+  glass(0.7, 0.5, 0.04, 0.45, 1.85, -2.98);
+  // left wall (driver side): solid lower + glass band + pillars + rail
+  panel(0.08, 0.75, 5.6, -0.96, 1.05, -0.1);
+  glass(0.06, 0.62, 3.3, -0.96, 1.75, -0.75);
+  glass(0.06, 0.62, 0.9, -0.96, 1.75, 1.65);
+  for (const pz of [-2.45, -0.75, 0.95, 1.2, 2.12]) panel(0.08, 0.62, 0.12, -0.96, 1.75, pz);
+  panel(0.08, 0.3, 5.1, -0.96, 2.19, -0.35);
+  // right wall: cab + REAR sections, OPENING for the sliding door (z 0.06..1.04)
+  panel(0.08, 0.75, 1.7, 0.96, 1.05, 1.95);
+  panel(0.08, 0.75, 2.9, 0.96, 1.05, -1.45);
+  glass(0.06, 0.62, 2.2, 0.96, 1.75, -1.7);
+  glass(0.06, 0.62, 0.75, 0.96, 1.75, 1.55);
+  for (const pz of [-2.85, -0.5, 0.0, 1.1, 2.12]) panel(0.08, 0.62, 0.12, 0.96, 1.75, pz);
+  panel(0.08, 0.3, 5.1, 0.96, 2.19, -0.35);
+  // slanted windshield + A-pillars
+  const shield = glass(1.8, 1.0, 0.06, 0, 1.87, 2.45);
+  shield.rotation.x = -0.53;
+  for (const s of [-1, 1]) {
+    const ap = panel(0.09, 1.0, 0.09, s * 0.92, 1.87, 2.45);
+    ap.rotation.x = -0.53;
   }
-  // windshield + side glass
-  const shield = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.75, 0.08), glassMat);
-  shield.position.set(0, 1.85, 2.62);
-  shield.rotation.x = -0.28;
-  const sideL = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.6, 2.6), glassMat);
-  sideL.position.set(-0.99, 1.95, 0.6);
-  const sideR = sideL.clone();
-  sideR.position.x = 0.99;
-  const driverL = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.6, 0.9), glassMat);
-  driverL.position.set(-0.99, 1.85, 2.0);
-  const driverR = driverL.clone();
-  driverR.position.x = 0.99;
-  body.add(shield, sideL, sideR, driverL, driverR);
 
-  // sliding door (right side) — slides back when open
-  const door = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.5, 1.15), paint);
-  door.position.set(1.0, 1.35, 0.55);
+  // sliding door (right side) — rides OUTSIDE the wall on rails, slides back
+  const door = new THREE.Mesh(new THREE.BoxGeometry(0.07, 1.55, 1.1), paint);
+  door.position.set(1.06, 1.32, 0.55);
   door.castShadow = true;
   body.add(door);
-  const doorGlass = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.5, 0.8), glassMat);
-  doorGlass.position.set(0, 0.4, 0);
+  const doorGlass = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.5, 0.75), glassMat);
+  doorGlass.position.set(0, 0.42, 0);
   door.add(doorGlass);
-  // dark interior visible behind door
-  const innerDark = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.5, 1.15), new THREE.MeshStandardMaterial({ color: '#0c0d0e', roughness: 1 }));
-  innerDark.position.set(0.72, 1.35, 0.55);
-  body.add(innerDark);
 
   // bumpers, grille, mirrors
   const bumpF = new THREE.Mesh(new THREE.BoxGeometry(2.02, 0.35, 0.25), trimMat);
@@ -114,16 +129,18 @@ function buildMinibusMesh(): VanRig {
   body.add(indL, indR);
   const beaconMat = new THREE.MeshStandardMaterial({ color: '#2a4a8c', emissive: '#2a6aff', emissiveIntensity: 0 });
   const beacon = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.15, 0.18, 10), beaconMat);
-  beacon.position.set(0, 2.52, 1.8);
+  beacon.position.set(0, 2.56, 1.8);
   body.add(beacon);
 
   // fictional livery stripe + text (canvas decal)
-  const stripe = new THREE.Mesh(
-    new THREE.BoxGeometry(2.02, 0.3, 5.5),
-    new THREE.MeshStandardMaterial({ color: '#27436e', roughness: 0.5 }),
-  );
-  stripe.position.set(0, 1.28, -0.15);
-  body.add(stripe);
+  const stripeMat = new THREE.MeshStandardMaterial({ color: '#27436e', roughness: 0.5 });
+  const stripeL = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.3, 5.5), stripeMat);
+  stripeL.position.set(-1.0, 1.28, -0.15);
+  const stripeRF = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.3, 1.7), stripeMat);
+  stripeRF.position.set(1.0, 1.28, 1.95);
+  const stripeRR = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.3, 2.9), stripeMat);
+  stripeRR.position.set(1.0, 1.28, -1.45);
+  body.add(stripeL, stripeRF, stripeRR);
   const lc = document.createElement('canvas');
   lc.width = 512;
   lc.height = 64;
@@ -137,13 +154,13 @@ function buildMinibusMesh(): VanRig {
   lg.fillText('ТИД • ИНСПЕКЦИЯ • 0417', 256, 34);
   const ltex = new THREE.CanvasTexture(lc);
   ltex.colorSpace = THREE.SRGBColorSpace;
-  for (const s of [-1, 1]) {
-    const decal = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 0.4), new THREE.MeshBasicMaterial({ map: ltex }));
-    decal.position.set(s * 1.02, 1.62, -0.4);
-    decal.rotation.y = s * Math.PI / 2;
-    if (s < 0) decal.rotation.y = -Math.PI / 2;
-    body.add(decal);
-  }
+  const decalL = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 0.35), new THREE.MeshBasicMaterial({ map: ltex }));
+  decalL.position.set(-1.02, 0.95, -0.4);
+  decalL.rotation.y = -Math.PI / 2;
+  const decalR = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 0.35), new THREE.MeshBasicMaterial({ map: ltex }));
+  decalR.position.set(1.02, 0.95, -1.45);
+  decalR.rotation.y = Math.PI / 2;
+  body.add(decalL, decalR);
   // plate
   const pc = document.createElement('canvas');
   pc.width = 128;
@@ -187,6 +204,18 @@ function buildMinibusMesh(): VanRig {
     benchBack.position.set(0, 1.3, z - 0.26);
     body.add(bench, benchBack);
   }
+  const floorMat = new THREE.Mesh(new THREE.BoxGeometry(1.84, 0.05, 5.5), new THREE.MeshStandardMaterial({ color: '#1b1d20', roughness: 1 }));
+  floorMat.position.set(0, 0.72, -0.1);
+  body.add(floorMat);
+  const dome = new THREE.Mesh(
+    new THREE.BoxGeometry(0.3, 0.03, 0.3),
+    new THREE.MeshStandardMaterial({ color: '#443c2a', emissive: '#ffd9a0', emissiveIntensity: 2.2 }),
+  );
+  dome.position.set(0, 2.32, -0.5);
+  body.add(dome);
+  const cabinLight = new THREE.PointLight('#ffd9a0', 4, 5, 1.6);
+  cabinLight.position.set(0, 2.0, -0.5);
+  body.add(cabinLight);
 
   // wheels with steering groups in front
   const wheels: THREE.Mesh[] = [];
@@ -245,6 +274,37 @@ function buildMinibusMesh(): VanRig {
 }
 
 // ============================================================ patrol AI
+const CITY_ROADS = [-56, 0, 56];
+
+/** Snap a point to the nearest road center-line — vans stay on roads. */
+export function nearestRoadPoint(p: THREE.Vector3, out: THREE.Vector3): THREE.Vector3 {
+  let bx = CITY_ROADS[0];
+  let bz = p.z;
+  let bd = Infinity;
+  for (const r of CITY_ROADS) {
+    const dx = Math.abs(p.x - r);
+    if (dx < bd) {
+      bd = dx;
+      bx = r;
+      bz = p.z;
+    }
+    const dz = Math.abs(p.z - r);
+    if (dz < bd) {
+      bd = dz;
+      bx = p.x;
+      bz = r;
+    }
+  }
+  return out.set(bx, 0, bz);
+}
+
+export function isNearRoad(p: THREE.Vector3, pad = 7): boolean {
+  for (const r of CITY_ROADS) {
+    if (Math.abs(p.x - r) < pad || Math.abs(p.z - r) < pad) return true;
+  }
+  return false;
+}
+
 export interface VanEvents {
   onDoorsOpened: () => void;
   onCheckReady: () => void;
@@ -280,6 +340,7 @@ export class VanAI {
   prevSpeed = 0;
   lastTurn = 0;
   dismountedFired = false;
+  tmpRoad = new THREE.Vector3();
   stateT = 0;
   doorT = 0;
   chaseT = 0;
@@ -311,7 +372,7 @@ export class VanAI {
 
   /** Where officers / player enter. */
   doorWorldPos(out: THREE.Vector3): THREE.Vector3 {
-    out.set(1.4, 0, 0.55).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.yaw).add(this.pos);
+    out.set(1.5, 0, 0.5).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.yaw).add(this.pos);
     return out;
   }
 
@@ -319,7 +380,7 @@ export class VanAI {
     if (this.state === 'dismount') return;
     this.state = 'dismount';
     this.stateT = 0;
-    this.doorT = 0;
+    this.doorT = this.doorT >= 1 ? 1 : 0;
     this.dismountedFired = false;
     this.stuckCount = 0;
     this.reversing = 0;
@@ -412,15 +473,17 @@ export class VanAI {
         break;
       }
       case 'slow': {
-        // pull toward player
-        steerTarget = playerPos;
-        targetSpeed = distP > 8 ? 5 : 0;
+        // pull toward the nearest ROAD point to the player (never through blocks)
+        nearestRoadPoint(playerPos, this.tmpRoad);
+        steerTarget = this.tmpRoad;
+        const dRoad = Math.hypot(this.pos.x - this.tmpRoad.x, this.pos.z - this.tmpRoad.z);
+        targetSpeed = dRoad > 5 ? 6.5 : 0;
         rig.indicatorOn = true;
-        if (distP < 7.5) {
+        if (dRoad < 5) {
           this.state = 'stop';
           this.stateT = 0;
         }
-        if (distP > 50) {
+        if (distP > 55) {
           this.state = 'patrol';
           rig.indicatorOn = false;
         }
@@ -441,10 +504,14 @@ export class VanAI {
         this.doorT = Math.min(1, this.doorT + dt / 1.3);
         rig.setDoor(this.doorT);
         if (this.doorT >= 1 && this.stateT > 1.6) {
-          this.state = 'check';
-          this.stateT = 0;
           this.events.onDoorsOpened();
-          this.events.onCheckReady();
+          if (distP < 9) {
+            this.state = 'check';
+            this.stateT = 0;
+            this.events.onCheckReady();
+          } else {
+            this.toDismount();
+          }
         }
         break;
       }
@@ -463,7 +530,13 @@ export class VanAI {
           this.hornCd = 3;
           this.events.onHorn();
         }
-        steerTarget = playerPos;
+        // chase along roads when the player ducks inside blocks (officers hunt on foot)
+        if (isNearRoad(playerPos)) {
+          steerTarget = playerPos;
+        } else {
+          nearestRoadPoint(playerPos, this.tmpRoad);
+          steerTarget = this.tmpRoad;
+        }
         targetSpeed = distP > 6 ? 7.5 : 0;
         rig.beaconMat.emissiveIntensity = 2 + Math.sin(t * 12) * 2;
         if (this.lostT > 7 || this.chaseT > 60) {
@@ -561,7 +634,7 @@ export class VanAI {
       while (dy < -Math.PI) dy += Math.PI * 2;
       const turn = THREE.MathUtils.clamp(dy * 2.2, -1.4, 1.4);
       this.lastTurn = turn;
-      this.yaw += turn * dt * Math.min(1, 0.3 + this.speed / 6);
+      this.yaw += turn * dt * Math.min(1, 0.5 + this.speed / 5);
       this.pos.x += Math.sin(this.yaw) * this.speed * dt;
       this.pos.z += Math.cos(this.yaw) * this.speed * dt;
       const steerVis = THREE.MathUtils.clamp(dy, -0.5, 0.5);
@@ -626,7 +699,7 @@ export class VanAI {
       rig.indRMat.emissiveIntensity = 0;
     }
     if (this.state !== 'chase') {
-      rig.beaconMat.emissiveIntensity = this.state === 'check' || this.state === 'doors' ? 1.5 + Math.sin(t * 6) * 1.5 : 0;
+      rig.beaconMat.emissiveIntensity = this.state === 'check' || this.state === 'doors' || this.state === 'slow' || this.state === 'dismount' ? 1.5 + Math.sin(t * 6) * 1.5 : 0;
     }
     this.rpm01 = THREE.MathUtils.clamp(this.speed / 12, 0.08, 1);
   }

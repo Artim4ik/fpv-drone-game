@@ -94,7 +94,7 @@ export class Game {
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
   private camera: THREE.PerspectiveCamera;
-  private clock = new THREE.Clock();
+  private lastNow = 0;
   private raf = 0;
   private world = new World();
   private zone: ZoneData | null = null;
@@ -472,6 +472,7 @@ export class Game {
       this.van.events.onChaseStart = () => {
         this.showMessage('Погоня! Отрывайтесь от патруля!', 3);
         this.audio.whistle();
+        this.audio.shout();
       };
       this.van.events.onGiveUp = () => {
         this.showMessage('Патруль отстал. Затаитесь.', 3);
@@ -619,6 +620,7 @@ export class Game {
   }
 
   private fadeTo(next: () => void): void {
+    if (this.fade !== 'none') return; // never restart an in-flight transition (stuck black screen)
     this.fade = 'out';
     this.fadeT = 0;
     this.fadeNext = next;
@@ -1430,7 +1432,9 @@ export class Game {
   private loop = (): void => {
     if (this.disposed) return;
     this.raf = requestAnimationFrame(this.loop);
-    const dt = Math.min(this.clock.getDelta(), 0.05);
+    const nowMs = performance.now();
+    const dt = this.lastNow > 0 ? Math.min((nowMs - this.lastNow) / 1000, 0.05) : 0.016;
+    this.lastNow = nowMs;
     this.time += dt;
     if (!this.paused && !this.victory) this.update(dt);
     this.updateFx(dt);
@@ -1483,7 +1487,12 @@ export class Game {
       if (this.fadeT > 0.9) {
         this.fade = 'in';
         this.fadeT = 0;
-        this.fadeNext?.();
+        try {
+          this.fadeNext?.();
+        } catch (err) {
+          console.error('[grey] chapter transition failed', err);
+          this.fade = 'none';
+        }
         this.fadeNext = null;
       }
     } else if (this.fade === 'in') {
@@ -1863,7 +1872,7 @@ export class Game {
         const tz = this.pos.z + 0.6 - i * 1.2;
         const d = Math.hypot(o.group.position.x - tx, o.group.position.z - tz);
         if (d > 1.1) {
-          steerToward(o.group.position, this.tmpV.set(tx, 0, tz), 2.6, dt, z.colliders);
+          steerToward(o.group.position, this.tmpV.set(tx, 0, tz), 3.4, dt, z.colliders);
           o.setPose('walk', this.time + i, 0.8);
         } else {
           o.setPose('guard', this.time + i, 0);
@@ -1884,7 +1893,7 @@ export class Game {
           o.group.position.z = THREE.MathUtils.lerp(o.group.position.z, this.pos.z, dt * 6);
           o.setPose('struggle', this.time + i, 0);
         } else if (d > 1.2) {
-          steerToward(o.group.position, this.pos, 5.6, dt, z.colliders);
+          steerToward(o.group.position, this.pos, 6.0, dt, z.colliders);
           o.setPose('run', this.time + i, 1);
         } else {
           o.setPose('guard', this.time + i, 0);
@@ -2020,9 +2029,9 @@ export class Game {
     if (this.chapter === 'minibus' && this.van) {
       // interior view: look forward through windshield + side window
       const yaw = this.van.yaw;
-      const eye = new THREE.Vector3(-0.4, 1.55, -0.6).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw).add(this.van.pos);
+      const eye = new THREE.Vector3(-0.55, 1.35, -1.6).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw).add(this.van.pos);
       this.camera.position.lerp(eye, 1 - Math.exp(-dt * 6));
-      const look = new THREE.Vector3(0.5, 1.2, 8).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw).add(this.van.pos);
+      const look = new THREE.Vector3(0, 1.15, 4).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw).add(this.van.pos);
       this.camera.lookAt(look);
       this.camera.fov = 58;
       this.camera.updateProjectionMatrix();
