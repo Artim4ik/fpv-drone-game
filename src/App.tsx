@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import DroneScene, { type Telemetry } from "./game/DroneScene";
+import DroneScene, { type HitEventKind, type Telemetry } from "./game/DroneScene";
 
 type GameMode = "briefing" | "running" | "paused" | "ended";
 type MissionResult = "success" | "failed" | null;
+type FeedItem = { id: number; message: string; kind: HitEventKind };
 
 const INITIAL_AMMO = 8;
 const INITIAL_TARGETS = 7;
@@ -17,6 +18,7 @@ const initialTelemetry: Telemetry = {
   range: null,
   locked: false,
   gamepad: false,
+  flightMode: "ANGLE",
 };
 
 function formatTime(totalSeconds: number) {
@@ -56,8 +58,10 @@ function App() {
   const [timeLeft, setTimeLeft] = useState(MISSION_SECONDS);
   const [telemetry, setTelemetry] = useState<Telemetry>(initialTelemetry);
   const [muted, setMuted] = useState(false);
+  const [feed, setFeed] = useState<FeedItem[]>([]);
   const modeRef = useRef<GameMode>(mode);
   const menuButtonPressedRef = useRef(false);
+  const feedIdRef = useRef(0);
 
   const isActive = mode === "running";
   modeRef.current = mode;
@@ -69,6 +73,7 @@ function App() {
     setTargets(INITIAL_TARGETS);
     setTimeLeft(MISSION_SECONDS);
     setTelemetry(initialTelemetry);
+    setFeed([]);
     setResult(null);
     setMode("running");
   }, []);
@@ -92,6 +97,16 @@ function App() {
 
   const handleBombReleased = useCallback(() => {
     setAmmo((value) => Math.max(0, value - 1));
+  }, []);
+
+  const handleEvent = useCallback((message: string, kind: HitEventKind, points?: number) => {
+    if (points) setScore((value) => value + points);
+    feedIdRef.current += 1;
+    const id = feedIdRef.current;
+    setFeed((items) => [...items.slice(-4), { id, message, kind }]);
+    window.setTimeout(() => {
+      setFeed((items) => items.filter((item) => item.id !== id));
+    }, 5200);
   }, []);
 
   useEffect(() => {
@@ -164,6 +179,7 @@ function App() {
         onBombReleased={handleBombReleased}
         onTelemetry={setTelemetry}
         onOutOfAmmo={() => endMission("failed")}
+        onEvent={handleEvent}
       />
 
       <div className="screen-fx" aria-hidden="true" />
@@ -208,6 +224,9 @@ function App() {
             <i />
             <span>SPD</span>
             <strong>{Math.round(telemetry.speed).toString().padStart(2, "0")}<small> KM/H</small></strong>
+            <i />
+            <span>MODE</span>
+            <strong className="hud__mode">{telemetry.flightMode}</strong>
           </div>
 
           <div className="hud__right">
@@ -234,10 +253,20 @@ function App() {
             </div>
             <div className="payload">
               <span>ЦЕЛИ <strong>{targets}</strong></span>
-              <span>БК <strong>{ammo}</strong></span>
+              <span>ПГ-7В <strong>{ammo}</strong></span>
               <span>СЧЕТ <strong>{score.toString().padStart(4, "0")}</strong></span>
             </div>
           </footer>
+
+          {feed.length > 0 && (
+            <div className="hit-feed" aria-live="polite">
+              {feed.map((item) => (
+                <div key={item.id} className={`hit-feed__item hit-feed__item--${item.kind}`}>
+                  {item.message}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -246,7 +275,8 @@ function App() {
           <div className="briefing__eyebrow"><span /> БРАУЗЕРНАЯ FPV-СИСТЕМА</div>
           <h1>BLACK<br /><em>KITE</em></h1>
           <p className="briefing__lead">
-            Найди и останови колонну техники с маркировкой Z.<br />
+            Колонна: Т-72Б и Т-90А с динамической защитой. На борту — кумулятивные
+            боеголовки ПГ-7В: лоб Т-90 держит, бей в борт, моторный отсек или сверху.<br />
             USB-контроллер Xbox определяется автоматически.
           </p>
           <button className="launch-button" type="button" onClick={launchMission}>
@@ -256,10 +286,14 @@ function App() {
           <div className="briefing__controls">
             <div><strong>ЛЕВЫЙ СТИК</strong><span>Тяга / поворот</span></div>
             <div><strong>ПРАВЫЙ СТИК</strong><span>Тангаж / крен</span></div>
-            <div><strong>RT</strong><span>Сброс заряда</span></div>
-            <div><strong>A</strong><span>Ускорение</span></div>
+            <div><strong>RT</strong><span>ПГ-7В: сброс</span></div>
+            <div><strong>A</strong><span>Перегрузка моторов</span></div>
+            <div><strong>C</strong><span>ANGLE / ACRO</span></div>
           </div>
-          <p className="briefing__fallback">Клавиатура: W/S, A/D, стрелки, Shift/Ctrl, пробел</p>
+          <p className="briefing__fallback">
+            Клавиатура: W/S — тангаж, A/D — рыскание, стрелки — крен, Shift/Ctrl — газ,
+            пробел — пуск, C — режим полёта
+          </p>
         </section>
       )}
 

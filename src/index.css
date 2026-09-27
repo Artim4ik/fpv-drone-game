@@ -382,6 +382,62 @@ button {
   font-weight: 400;
 }
 
+.hud__mode {
+  font-size: 15px !important;
+  color: var(--acid);
+  letter-spacing: 0.06em;
+}
+
+.hit-feed {
+  position: absolute;
+  left: 28px;
+  bottom: 104px;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  max-width: min(430px, 62vw);
+}
+
+.hit-feed__item {
+  padding: 7px 11px;
+  color: rgba(238, 239, 218, 0.92);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  border-left: 2px solid rgba(238, 239, 218, 0.5);
+  background: rgba(10, 13, 9, 0.66);
+  backdrop-filter: blur(3px);
+  text-shadow: none;
+  animation: hit-feed-in 0.24s ease-out both;
+}
+
+.hit-feed__item--kill {
+  color: var(--acid);
+  border-left-color: var(--acid);
+  background: rgba(24, 30, 12, 0.72);
+}
+
+.hit-feed__item--hit {
+  color: #ecc468;
+  border-left-color: #ecc468;
+}
+
+.hit-feed__item--warn {
+  color: #e4805f;
+  border-left-color: #e4805f;
+}
+
+.hit-feed__item--info {
+  color: rgba(238, 239, 218, 0.7);
+  border-left-color: rgba(238, 239, 218, 0.35);
+}
+
+@keyframes hit-feed-in {
+  from { opacity: 0; transform: translateX(-14px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
 .briefing {
   position: absolute;
   inset: 0;
@@ -477,6 +533,7 @@ button {
 
 .briefing__controls {
   display: flex;
+  flex-wrap: wrap;
   gap: clamp(16px, 2.5vw, 42px);
   margin-top: 44px;
   padding-top: 18px;
@@ -606,6 +663,8 @@ button {
   .controller-state { display: none; }
   .heading { display: none; }
   .payload { gap: 12px; }
+  .hit-feed { left: 14px; bottom: 88px; max-width: calc(100vw - 28px); }
+  .hit-feed__item { font-size: 9px; padding: 5px 8px; }
   .briefing h1 { font-size: clamp(66px, 23vw, 112px); }
 }
 
