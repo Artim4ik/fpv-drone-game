@@ -1213,7 +1213,9 @@ export default function DroneScene({
         yaw = THREE.MathUtils.clamp(yaw + left.x, -1, 1);
         roll = THREE.MathUtils.clamp(roll + right.x, -1, 1);
         pitch = THREE.MathUtils.clamp(pitch - right.y, -1, 1);
-        throttle = (1 - left.y) / 2;
+        // Throttle stick: middle of the travel reads as 0% thrust (the drone
+        // falls), pushing up from the centre gives 0→100%; below centre stays 0.
+        throttle = THREE.MathUtils.clamp(-left.y, 0, 1);
         boost ||= Boolean(gamepad.buttons[0]?.pressed);
         if (keyboardUp) throttle = Math.min(1, throttle + 0.2);
         if (keyboardDown) throttle = Math.max(0, throttle - 0.2);
