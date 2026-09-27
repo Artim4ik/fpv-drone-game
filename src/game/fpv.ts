@@ -74,7 +74,7 @@ export function createFpvState(spawn: THREE.Vector3): FpvState {
     rollAngle: 0,
     throttleLever: HOVER_LEVER,
     motorSpool: HOVER_LEVER,
-    mode: "ANGLE",
+    mode: "ACRO",
     pitchCmd: 0,
     rollCmd: 0,
     yawCmd: 0,

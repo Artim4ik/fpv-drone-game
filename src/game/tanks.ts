@@ -1,9 +1,5 @@
 import * as THREE from "three";
-import {
-  makeArmorBumpTexture,
-  makeCamoTexture,
-  makeTrackTexture,
-} from "./textures";
+import { makeArmorBumpTexture, makeCamoTexture, makeTrackTexture } from "./textures";
 
 export type TankType = "T72B" | "T90";
 
@@ -27,11 +23,11 @@ type ZoneSpec = {
 };
 
 /**
- * Armour values are close to published figures: the T-72B relies on
- * composite plates + Kontakt-1 blocks, the T-90A carries the heavier
- * Kontakt-5 set which defeats a PG-7VL shaped charge from the front,
- * while roofs, tracks and the engine compartment stay vulnerable —
- * exactly the attack envelope an FPV drone exploits.
+ * Armour values follow published figures: the T-72B carries composite plates
+ * + Kontakt-1 blocks, the T-90A the heavier Kontakt-5 set which defeats a
+ * shaped-charge warhead from the front. Roofs, tracks and the engine
+ * compartment stay vulnerable — the attack envelope of a kamikaze drone.
+ * ERA detonates reliably but occasionally fails (modelled at 5%).
  */
 const ARMOR: Record<TankType, Record<ZoneId, ZoneSpec>> = {
   T72B: {
@@ -56,10 +52,12 @@ const ARMOR: Record<TankType, Record<ZoneId, ZoneSpec>> = {
   },
 };
 
-/** PG-7VL cumulative grenade: ~560 mm RHA at 90°. */
+/** Shaped-charge warhead of an FPV kamikaze: ~560 mm RHA at 90°. */
 export const HEAT_PENETRATION = 560;
 
 export const KILL_POINTS: Record<TankType, number> = { T72B: 200, T90: 300 };
+
+const ERA_FAIL_CHANCE = 0.05;
 
 export type HitResolution = {
   zone: ZoneId;
@@ -67,6 +65,7 @@ export type HitResolution = {
   effectiveArmor: number;
   penetration: number;
   pen: boolean;
+  eraFailed: boolean;
 };
 
 export function resolveArmorHit(
@@ -76,12 +75,13 @@ export function resolveArmorHit(
 ): HitResolution {
   const spec = ARMOR[type][zone] ?? ARMOR[type].hullSide;
   // Line-of-sight thickening of the sloped plate.
-  const lineOfSight = spec.mm / THREE.MathUtils.clamp(incidenceCos, 0.28, 1);
-  // Dynamic protection detonates slightly inconsistently.
-  const eraBonus = spec.era > 0 ? spec.era * (0.86 + Math.random() * 0.3) : 0;
+  const lineOfSight = spec.mm / THREE.MathUtils.clamp(incidenceCos, 0.24, 1);
+  // Dynamic protection usually detonates, but has a small failure rate.
+  const eraFailed = spec.era > 0 && Math.random() < ERA_FAIL_CHANCE;
+  const eraBonus = spec.era > 0 && !eraFailed ? spec.era * (0.86 + Math.random() * 0.3) : 0;
   const effectiveArmor = Math.round(lineOfSight + eraBonus);
   const penetration = Math.round(HEAT_PENETRATION * (0.92 + Math.random() * 0.16));
-  return { zone, spec, effectiveArmor, penetration, pen: penetration > effectiveArmor };
+  return { zone, spec, effectiveArmor, penetration, pen: penetration > effectiveArmor, eraFailed };
 }
 
 export function tankLabel(type: TankType) {
@@ -92,6 +92,8 @@ export type TankBuild = {
   group: THREE.Group;
   turret: THREE.Group;
   type: TankType;
+  /** Materials that receive the shared detailed armour texture when available. */
+  armorMaterials: THREE.MeshStandardMaterial[];
 };
 
 type Vec = [number, number, number];
@@ -108,15 +110,43 @@ function addMesh(
   mesh.position.set(position[0], position[1], position[2]);
   if (rotation) mesh.rotation.set(rotation[0], rotation[1], rotation[2]);
   mesh.userData.zone = zone;
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
   parent.add(mesh);
   return mesh;
 }
 
-function buildTracks(group: THREE.Group, trackMaterial: THREE.Material, halfWidth: number) {
-  const geometry = new THREE.CapsuleGeometry(0.5, 5.3, 4, 12);
-  geometry.rotateX(Math.PI / 2);
-  for (const side of [-1, 1]) {
-    addMesh(group, geometry.clone(), trackMaterial, [side * halfWidth, 0.52, 0], "track");
+/** Complete running gear: road wheels, idler, sprocket and track plates. */
+function buildRunningGear(group: THREE.Group, side: number, trackMaterial: THREE.Material, wheelMaterial: THREE.Material, hubMaterial: THREE.Material) {
+  const x = side * 1.62;
+  const bottom = new THREE.BoxGeometry(0.56, 0.12, 5.4);
+  const top = new THREE.BoxGeometry(0.56, 0.1, 5.2);
+  addMesh(group, bottom, trackMaterial, [x, 0.08, 0], "track");
+  addMesh(group, top, trackMaterial, [x, 1.0, 0], "track");
+
+  for (const z of [-2.62, 2.62]) {
+    const drum = new THREE.CylinderGeometry(0.46, 0.46, 0.56, 14);
+    drum.rotateZ(Math.PI / 2);
+    addMesh(group, drum, wheelMaterial, [x, 0.53, z], "track");
+    const hub = new THREE.CylinderGeometry(0.2, 0.2, 0.6, 10);
+    hub.rotateZ(Math.PI / 2);
+    addMesh(group, hub, hubMaterial, [x, 0.53, z], "track");
+  }
+
+  for (let index = 0; index < 6; index += 1) {
+    const z = -2.1 + index * 0.84;
+    const wheel = new THREE.CylinderGeometry(0.34, 0.34, 0.5, 14);
+    wheel.rotateZ(Math.PI / 2);
+    addMesh(group, wheel, wheelMaterial, [x, 0.42, z], "track");
+    const hub = new THREE.CylinderGeometry(0.16, 0.16, 0.54, 8);
+    hub.rotateZ(Math.PI / 2);
+    addMesh(group, hub, hubMaterial, [x, 0.42, z], "track");
+  }
+
+  for (const z of [-1.05, 0.3, 1.65]) {
+    const roller = new THREE.CylinderGeometry(0.14, 0.14, 0.44, 8);
+    roller.rotateZ(Math.PI / 2);
+    addMesh(group, roller, wheelMaterial, [x, 1.14, z], "track");
   }
 }
 
@@ -190,15 +220,15 @@ export function createTank(
     map: camo,
     bumpMap: bump,
     bumpScale: 0.9,
-    roughness: 0.82,
-    metalness: 0.24,
+    roughness: 0.8,
+    metalness: 0.26,
   });
   const armorExtra = new THREE.MeshStandardMaterial({
     map: camo,
     bumpMap: bump,
     bumpScale: 0.6,
-    roughness: 0.86,
-    metalness: 0.2,
+    roughness: 0.85,
+    metalness: 0.22,
   });
   const dark = new THREE.MeshStandardMaterial({ color: "#1c1e1a", roughness: 0.9, metalness: 0.35 });
   const trackMaterial = new THREE.MeshStandardMaterial({
@@ -207,13 +237,17 @@ export function createTank(
     roughness: 0.95,
     metalness: 0.5,
   });
+  const wheelMaterial = new THREE.MeshStandardMaterial({ color: "#26271f", roughness: 0.95, metalness: 0.15 });
+  const hubMaterial = new THREE.MeshStandardMaterial({ color: "#55564c", roughness: 0.6, metalness: 0.65 });
   const markingMaterial = new THREE.MeshBasicMaterial({
     map: marking,
     side: THREE.DoubleSide,
     transparent: true,
   });
 
-  buildTracks(group, trackMaterial, 1.62);
+  // Note: armor & armorExtra deliberately get two separate canvas textures so
+  // each can be swapped independently for the detailed external texture.
+  for (const side of [-1, 1]) buildRunningGear(group, side, trackMaterial, wheelMaterial, hubMaterial);
 
   // Hull: lower tub, sloped upper glacis, roof plate, rear engine plate.
   addMesh(group, new THREE.BoxGeometry(3.0, 0.85, 6.3), armor, [0, 1.28, 0], "hullSide");
@@ -224,6 +258,22 @@ export function createTank(
   addMesh(group, new THREE.BoxGeometry(0.9, 0.1, 1.3), dark, [0.85, 1.84, 2.35], "engine");
   for (const side of [-1, 1]) {
     addMesh(group, new THREE.BoxGeometry(0.5, 0.09, 6.1), armorExtra, [side * 1.76, 1.62, 0], "hullSide");
+    // Fender-mounted stowage boxes.
+    addMesh(group, new THREE.BoxGeometry(0.4, 0.3, 1.25), armorExtra, [side * 1.76, 1.85, -1.4], "hullSide");
+  }
+
+  // Headlights with a slight glow — picked up by the bloom pass.
+  const glassMaterial = new THREE.MeshStandardMaterial({
+    color: "#c9d2bc",
+    emissive: "#9fb07a",
+    emissiveIntensity: 0.35,
+    roughness: 0.25,
+    metalness: 0.4,
+  });
+  for (const side of [-1, 1]) {
+    const lamp = new THREE.CylinderGeometry(0.1, 0.1, 0.08, 10);
+    lamp.rotateX(Math.PI / 2);
+    addMesh(group, lamp, glassMaterial, [side * 1.15, 1.5, -3.16], "hullSide");
   }
 
   if (type === "T72B") {
@@ -231,6 +281,8 @@ export function createTank(
     const drum = new THREE.CylinderGeometry(0.3, 0.3, 1.3, 10);
     drum.rotateZ(Math.PI / 2);
     addMesh(group, drum, armorExtra, [0.5, 1.95, 2.75], "engine");
+    // Exhaust port on the left.
+    addMesh(group, new THREE.BoxGeometry(0.42, 0.3, 0.5), dark, [-1.35, 1.55, 2.9], "engine");
     // Kontakt-1 bricks on the glacis.
     buildGlacisEra(group, armorExtra, [0, 1.45, -2.05], -0.62, [0.4, 0.08, 0.36], 6, 4);
   } else {
@@ -242,6 +294,7 @@ export function createTank(
         addMesh(group, skirt.clone(), armorExtra, [side * 1.57, 1.22, z], "hullSide");
       }
     }
+    addMesh(group, new THREE.BoxGeometry(0.42, 0.3, 0.5), dark, [-1.35, 1.55, 2.9], "engine");
     buildGlacisEra(group, armorExtra, [0, 1.45, -2.05], -0.62, [0.42, 0.1, 0.4], 6, 4);
   }
 
@@ -259,7 +312,7 @@ export function createTank(
   addMesh(turret, new THREE.BoxGeometry(1.55, 0.52, 0.45), armor, [0, 0.3, -1.42], "turretFront", [0.07, 0, 0]);
   addMesh(turret, new THREE.BoxGeometry(0.72, 0.46, 0.4), armor, [0, 0.35, -1.66], "turretFront");
 
-  // Gun: barrel + bore evacuator.
+  // Gun: barrel + bore evacuator + muzzle collar.
   const barrelGeometry = new THREE.CylinderGeometry(0.075, 0.085, 4.3, 10);
   barrelGeometry.rotateX(Math.PI / 2);
   addMesh(turret, barrelGeometry, dark, [0, 0.36, -3.95], "barrel");
@@ -276,6 +329,16 @@ export function createTank(
   for (const side of [-1, 1]) {
     addMesh(turret, new THREE.BoxGeometry(0.3, 0.3, 0.95), armorExtra, [side * 1.14, 0.36, 0.42], "turretSide");
   }
+
+  // Anti-aircraft machine gun on the commander cupola.
+  addMesh(turret, new THREE.BoxGeometry(0.18, 0.16, 0.5), dark, [0.45, 0.96, -0.35], "barrel");
+  const mgBarrel = new THREE.CylinderGeometry(0.03, 0.03, 0.6, 6);
+  mgBarrel.rotateX(Math.PI / 2);
+  addMesh(turret, mgBarrel, dark, [0.45, 0.99, -0.85], "barrel");
+
+  // Radio antenna.
+  const antenna = new THREE.CylinderGeometry(0.016, 0.028, 1.7, 5);
+  addMesh(turret, antenna, dark, [-0.85, 1.5, 0.75], "turretSide", [0.16, 0, 0.1]);
 
   if (type === "T72B") {
     buildTurretEraArc(turret, armorExtra, -0.25, 1.36, 1.52, 0.42, 7);
@@ -306,16 +369,18 @@ export function createTank(
     addMesh(turret, irst, dark, [0.05, 0.9, -0.95], "roof");
   }
 
-  // Tactical marking on the turret roof.
+  // Tactical marking on the turret roof (no shadow — it is a decal).
   const mark = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.2), markingMaterial);
   mark.position.set(0, 0.87, -0.05);
   mark.rotation.x = -Math.PI / 2;
   mark.userData.zone = "roof";
+  mark.castShadow = false;
+  mark.receiveShadow = false;
   turret.add(mark);
 
   group.traverse((object) => {
     object.userData.targetId = id;
   });
 
-  return { group, turret, type };
+  return { group, turret, type, armorMaterials: [armor, armorExtra] };
 }

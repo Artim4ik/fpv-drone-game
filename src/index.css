@@ -69,6 +69,16 @@ button {
   animation: feed-shift 0.23s steps(2) infinite;
 }
 
+.screen-fx--lost {
+  opacity: 0.66;
+  background-image:
+    repeating-linear-gradient(0deg, rgba(6, 10, 7, 0.4) 0, rgba(6, 10, 7, 0.4) 2px, transparent 2px, transparent 5px),
+    repeating-linear-gradient(0deg, rgba(214, 236, 160, 0.1) 0, rgba(214, 236, 160, 0.1) 1px, transparent 1px, transparent 3px),
+    radial-gradient(circle at 34% 42%, rgba(255, 255, 255, 0.14) 0 1px, transparent 1.5px);
+  background-size: auto, auto, 5px 5px;
+  animation: feed-noise 0.08s steps(3) infinite;
+}
+
 .vignette {
   background:
     linear-gradient(180deg, rgba(8, 10, 7, 0.48), transparent 22%, transparent 76%, rgba(8, 10, 7, 0.64)),
@@ -304,6 +314,18 @@ button {
 .lock-readout--active,
 .lock-readout--active strong {
   color: var(--acid);
+}
+
+.lock-readout--respawn,
+.lock-readout--respawn strong {
+  color: #e4805f;
+  animation: respawn-blink 0.5s steps(2) infinite;
+}
+
+@keyframes respawn-blink {
+  0% { opacity: 1; }
+  50% { opacity: 0.35; }
+  100% { opacity: 1; }
 }
 
 .hud__bottom {
@@ -631,6 +653,13 @@ button {
 @keyframes feed-shift {
   0% { transform: translateY(0); }
   50% { transform: translateY(1px); }
+  100% { transform: translateY(0); }
+}
+
+@keyframes feed-noise {
+  0% { transform: translateY(0); }
+  33% { transform: translateY(-2px); }
+  66% { transform: translateY(2px); }
   100% { transform: translateY(0); }
 }
 

@@ -1,22 +1,12 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { AudioEngine } from "./audio";
-import {
-  createFpvState,
-  flightHeading,
-  HOVER_LEVER,
-  stepFpv,
-  type FlightMode,
-  type FpvControls,
-} from "./fpv";
-import {
-  createTank,
-  KILL_POINTS,
-  resolveArmorHit,
-  tankLabel,
-  type TankType,
-  type ZoneId,
-} from "./tanks";
+import { createFpvState, flightHeading, HOVER_LEVER, stepFpv, type FlightMode, type FpvControls } from "./fpv";
+import { createTank, KILL_POINTS, resolveArmorHit, tankLabel, type TankBuild, type TankType, type ZoneId } from "./tanks";
 import {
   makeArmorBumpTexture,
   makeMarkingTexture,
@@ -35,6 +25,7 @@ export type Telemetry = {
   locked: boolean;
   gamepad: boolean;
   flightMode: FlightMode;
+  respawning: boolean;
 };
 
 export type HitEventKind = "kill" | "hit" | "warn" | "info";
@@ -42,11 +33,8 @@ export type HitEventKind = "kill" | "hit" | "warn" | "info";
 type DroneSceneProps = {
   active: boolean;
   muted: boolean;
-  initialAmmo: number;
   onTargetDestroyed: (points: number) => void;
-  onBombReleased: () => void;
   onTelemetry: (telemetry: Telemetry) => void;
-  onOutOfAmmo: () => void;
   onEvent?: (message: string, kind: HitEventKind, points?: number) => void;
 };
 
@@ -56,20 +44,13 @@ type Target = {
   label: string;
   group: THREE.Group;
   turret: THREE.Group;
+  armorMaterials: THREE.MeshStandardMaterial[];
   alive: boolean;
   tracked: boolean;
   gunDead: boolean;
   burning: boolean;
   smokeTimer: number;
   fire: THREE.Sprite[];
-};
-
-type Warhead = {
-  group: THREE.Group;
-  velocity: THREE.Vector3;
-  age: number;
-  motor: number;
-  trailTimer: number;
 };
 
 type Puff = {
@@ -95,7 +76,11 @@ type Blast = { delay: number; position: THREE.Vector3; power: number };
 
 const TERRAIN_SIZE = 520;
 const START_POSITION = new THREE.Vector3(0, 18, 62);
+const SUN_OFFSET = new THREE.Vector3(-70, 110, 45);
 const CAM_TILT = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.12, 0, 0));
+const RESPAWN_DELAY = 1.6;
+const GROUND_DEATH_SPEED = 5.2;
+const SKIM_DEATH_SPEED = 11;
 
 function terrainHeight(x: number, z: number) {
   return (
@@ -147,8 +132,33 @@ function createSky(scene: THREE.Scene) {
     `,
   });
   const sky = new THREE.Mesh(geometry, material);
-  sky.renderOrder = -1;
+  sky.renderOrder = -2;
   scene.add(sky);
+
+  // HDR sun disc — the bloom pass turns it into a hot glow.
+  const sunMaterial = new THREE.MeshBasicMaterial({
+    color: new THREE.Color().setRGB(7, 6.1, 4.6),
+    fog: false,
+  });
+  const sunDisc = new THREE.Mesh(new THREE.SphereGeometry(15, 16, 12), sunMaterial);
+  sunDisc.renderOrder = -1;
+  scene.add(sunDisc);
+
+  return { sky, sunDisc };
+}
+
+// Renderer handle used to bake the sky environment map.
+let renderer: THREE.WebGLRenderer | null = null;
+
+function buildEnvironmentMap(sky: THREE.Mesh, target: THREE.Scene) {
+  if (!renderer) return;
+  const envScene = new THREE.Scene();
+  envScene.add(sky.clone());
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const env = pmrem.fromScene(envScene, 0, 0.1, 1000);
+  target.environment = env.texture;
+  target.environmentIntensity = 0.5;
+  pmrem.dispose();
 }
 
 function createTerrain(scene: THREE.Scene) {
@@ -216,6 +226,7 @@ function createTerrain(scene: THREE.Scene) {
       polygonOffsetFactor: -1,
     }),
   );
+  road.receiveShadow = true;
   scene.add(road);
 }
 
@@ -230,6 +241,8 @@ function addVegetation(scene: THREE.Scene) {
   });
   const trunks = new THREE.InstancedMesh(trunkGeometry, trunkMaterial, 125);
   const crowns = new THREE.InstancedMesh(crownGeometry, crownMaterial, 125);
+  trunks.castShadow = true;
+  crowns.castShadow = true;
   const transform = new THREE.Object3D();
   for (let index = 0; index < 125; index += 1) {
     let x = seededRandom(index * 3 + 5) * 230 - 115;
@@ -257,6 +270,7 @@ function addVegetation(scene: THREE.Scene) {
     flatShading: true,
   });
   const bushes = new THREE.InstancedMesh(bushGeometry, bushMaterial, 95);
+  bushes.castShadow = true;
   for (let index = 0; index < 95; index += 1) {
     const x = seededRandom(index * 17 + 61) * 236 - 118;
     const z = seededRandom(index * 23 + 13) * 300 - 210;
@@ -278,6 +292,8 @@ function addVegetation(scene: THREE.Scene) {
     flatShading: true,
   });
   const rocks = new THREE.InstancedMesh(rockGeometry, rockMaterial, 45);
+  rocks.castShadow = true;
+  rocks.receiveShadow = true;
   for (let index = 0; index < 45; index += 1) {
     const x = seededRandom(index * 29 + 7) * 220 - 110;
     const z = seededRandom(index * 31 + 91) * 290 - 205;
@@ -305,8 +321,10 @@ function addWorldDetails(scene: THREE.Scene) {
     const y = terrainHeight(x, z);
     const pole = new THREE.Mesh(poleGeometry, poleMaterial);
     pole.position.set(x, y + 3.5, z);
+    pole.castShadow = true;
     const cross = new THREE.Mesh(crossGeometry, poleMaterial);
     cross.position.set(x, y + 6.3, z);
+    cross.castShadow = true;
     scene.add(pole, cross);
   }
 
@@ -324,6 +342,8 @@ function addWorldDetails(scene: THREE.Scene) {
     tent.rotation.z = Math.PI / 2;
     tent.rotation.y = Math.PI / 6;
     tent.position.set(x, terrainHeight(x, z) + 1.6, z);
+    tent.castShadow = true;
+    tent.receiveShadow = true;
     scene.add(tent);
   }
 
@@ -341,59 +361,18 @@ function addWorldDetails(scene: THREE.Scene) {
   }
 }
 
-function buildWarheadMesh() {
-  const group = new THREE.Group();
-  const bodyMaterial = new THREE.MeshStandardMaterial({
-    color: "#414d35",
-    metalness: 0.55,
-    roughness: 0.42,
-  });
-  const darkMaterial = new THREE.MeshStandardMaterial({
-    color: "#191b17",
-    metalness: 0.7,
-    roughness: 0.38,
-  });
-
-  const cone = new THREE.Mesh(new THREE.ConeGeometry(0.17, 0.5, 12), bodyMaterial);
-  cone.rotation.x = -Math.PI / 2;
-  cone.position.z = -0.45;
-  group.add(cone);
-
-  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.62, 12), bodyMaterial);
-  body.rotation.x = Math.PI / 2;
-  body.position.z = -0.08;
-  group.add(body);
-
-  const tail = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 0.4, 8), darkMaterial);
-  tail.rotation.x = Math.PI / 2;
-  tail.position.z = 0.35;
-  group.add(tail);
-
-  for (let index = 0; index < 4; index += 1) {
-    const fin = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.15, 0.24), darkMaterial);
-    const angle = (index / 4) * Math.PI * 2;
-    fin.position.set(Math.sin(angle) * 0.1, Math.cos(angle) * 0.1, 0.44);
-    fin.rotation.z = -angle;
-    group.add(fin);
-  }
-  return group;
-}
-
 export default function DroneScene({
   active,
   muted,
-  initialAmmo,
   onTargetDestroyed,
-  onBombReleased,
   onTelemetry,
-  onOutOfAmmo,
   onEvent,
 }: DroneSceneProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef(active);
   const mutedRef = useRef(muted);
   const audioRef = useRef<AudioEngine | null>(null);
-  const callbacksRef = useRef({ onTargetDestroyed, onBombReleased, onTelemetry, onOutOfAmmo, onEvent });
+  const callbacksRef = useRef({ onTargetDestroyed, onTelemetry, onEvent });
 
   useEffect(() => {
     activeRef.current = active;
@@ -405,8 +384,8 @@ export default function DroneScene({
   }, [muted]);
 
   useEffect(() => {
-    callbacksRef.current = { onTargetDestroyed, onBombReleased, onTelemetry, onOutOfAmmo, onEvent };
-  }, [onBombReleased, onOutOfAmmo, onTargetDestroyed, onTelemetry, onEvent]);
+    callbacksRef.current = { onTargetDestroyed, onTelemetry, onEvent };
+  }, [onTelemetry, onEvent, onTargetDestroyed]);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -420,21 +399,37 @@ export default function DroneScene({
     camera.position.copy(START_POSITION);
     camera.quaternion.copy(CAM_TILT);
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.65));
-    renderer.setSize(mount.clientWidth, mount.clientHeight);
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 0.95;
-    renderer.shadowMap.enabled = false;
-    mount.appendChild(renderer.domElement);
+    const webglRenderer = new THREE.WebGLRenderer({
+      antialias: true,
+      powerPreference: "high-performance",
+    });
+    renderer = webglRenderer;
+    webglRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.65));
+    webglRenderer.setSize(mount.clientWidth, mount.clientHeight);
+    webglRenderer.outputColorSpace = THREE.SRGBColorSpace;
+    webglRenderer.toneMapping = THREE.ACESFilmicToneMapping;
+    webglRenderer.toneMappingExposure = 1.0;
+    webglRenderer.shadowMap.enabled = true;
+    webglRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    mount.appendChild(webglRenderer.domElement);
 
-    const hemisphere = new THREE.HemisphereLight("#d8d8c8", "#34362d", 2.1);
-    const sun = new THREE.DirectionalLight("#fff1cf", 2.5);
-    sun.position.set(-70, 110, 45);
-    scene.add(hemisphere, sun);
+    const hemisphere = new THREE.HemisphereLight("#d8d8c8", "#34362d", 1.55);
+    const sun = new THREE.DirectionalLight("#fff1cf", 2.7);
+    sun.position.copy(START_POSITION).add(SUN_OFFSET);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.camera.left = -75;
+    sun.shadow.camera.right = 75;
+    sun.shadow.camera.top = 75;
+    sun.shadow.camera.bottom = -75;
+    sun.shadow.camera.near = 15;
+    sun.shadow.camera.far = 330;
+    sun.shadow.bias = -0.0003;
+    sun.shadow.normalBias = 0.035;
+    scene.add(hemisphere, sun, sun.target);
 
-    createSky(scene);
+    const { sky, sunDisc } = createSky(scene);
+    buildEnvironmentMap(sky, scene);
     createTerrain(scene);
     addVegetation(scene);
     addWorldDetails(scene);
@@ -452,7 +447,12 @@ export default function DroneScene({
     const typeSequence: TankType[] = ["T72B", "T90", "T72B", "T72B", "T90", "T72B", "T90"];
     const targets: Target[] = coordinates.map(([x, z], id) => {
       const type = typeSequence[id % typeSequence.length];
-      const tank = createTank(type, id, new THREE.Vector3(x, terrainHeight(x, z), z), marking);
+      const tank: TankBuild = createTank(
+        type,
+        id,
+        new THREE.Vector3(x, terrainHeight(x, z), z),
+        marking,
+      );
       scene.add(tank.group);
       return {
         id,
@@ -460,6 +460,7 @@ export default function DroneScene({
         label: tankLabel(type),
         group: tank.group,
         turret: tank.turret,
+        armorMaterials: tank.armorMaterials,
         alive: true,
         tracked: false,
         gunDead: false,
@@ -470,13 +471,35 @@ export default function DroneScene({
     });
     const tankGroups = targets.map((target) => target.group);
 
+    // Detailed third-party armour texture (AI-generated asset in /public).
+    new THREE.TextureLoader().load(
+      "textures/tank_armor.jpg",
+      (texture) => {
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.anisotropy = Math.min(8, webglRenderer.capabilities.getMaxAnisotropy());
+        const superseded = new Set<THREE.Texture>();
+        for (const target of targets) {
+          for (const material of target.armorMaterials) {
+            if (material.map) superseded.add(material.map);
+            material.map = texture;
+            material.color.set(1, 1, 1);
+            material.needsUpdate = true;
+          }
+        }
+        superseded.forEach((texture) => texture.dispose());
+      },
+      undefined,
+      () => {
+        // Keep the procedural camo if the file is unavailable.
+      },
+    );
+
     const audio = new AudioEngine();
     audio.setMuted(mutedRef.current);
     audio.startContinuous();
     audioRef.current = audio;
 
     const state = createFpvState(START_POSITION);
-    const warheads: Warhead[] = [];
     const puffs: Puff[] = [];
     const debris: Debris[] = [];
     const scheduled: Blast[] = [];
@@ -490,20 +513,17 @@ export default function DroneScene({
     const scorchGeometry = new THREE.PlaneGeometry(1, 1);
     const debrisGeometry = new THREE.BoxGeometry(0.14, 0.14, 0.14);
 
-    let ammo = initialAmmo;
+    let destroyed = false;
+    let respawnTimer = 0;
+    const tumble = new THREE.Vector3();
     let boost = false;
-    let previousDrop = false;
     let previousLocked = false;
-    let modeToggleHeld = false;
     let keyboardThrottle = HOVER_LEVER;
-    let fireCooldown = 0;
     let shake = 0;
     let animationFrame = 0;
     let elapsed = 0;
     let telemetryElapsed = 0;
     let lastTime = performance.now();
-    let outOfAmmoTimer = 0;
-    let missionClosed = false;
 
     const emit = (message: string, kind: HitEventKind, points?: number) => {
       callbacksRef.current.onEvent?.(message, kind, points);
@@ -524,9 +544,31 @@ export default function DroneScene({
       const height = mount.clientHeight;
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
-      renderer.setSize(width, height);
+      webglRenderer.setSize(width, height);
+      composer.setSize(width, height);
     };
     window.addEventListener("resize", resize);
+
+    const composer = new EffectComposer(webglRenderer);
+    composer.addPass(new RenderPass(scene, camera));
+    const bloomPass = new UnrealBloomPass(
+      new THREE.Vector2(mount.clientWidth, mount.clientHeight),
+      0.42,
+      0.55,
+      0.85,
+    );
+    composer.addPass(bloomPass);
+    composer.addPass(new OutputPass());
+
+    const cameraRight = new THREE.Vector3();
+    const toSource = new THREE.Vector3();
+    const panFor = (worldPos: THREE.Vector3) => {
+      cameraRight.set(1, 0, 0).applyQuaternion(camera.quaternion);
+      toSource.copy(worldPos).sub(camera.position);
+      if (toSource.lengthSq() < 1e-6) return 0;
+      toSource.normalize();
+      return THREE.MathUtils.clamp(cameraRight.dot(toSource) * 0.85, -1, 1);
+    };
 
     const spawnPuff = (
       position: THREE.Vector3,
@@ -571,6 +613,7 @@ export default function DroneScene({
         });
         const mesh = new THREE.Mesh(debrisGeometry, material);
         mesh.position.copy(position);
+        mesh.castShadow = true;
         scene.add(mesh);
         debris.push({
           mesh,
@@ -596,11 +639,7 @@ export default function DroneScene({
         polygonOffsetFactor: -2,
       });
       const mesh = new THREE.Mesh(scorchGeometry, material);
-      mesh.position.set(
-        position.x,
-        terrainHeight(position.x, position.z) + 0.06,
-        position.z,
-      );
+      mesh.position.set(position.x, terrainHeight(position.x, position.z) + 0.06, position.z);
       mesh.rotation.x = -Math.PI / 2;
       mesh.rotation.z = Math.random() * Math.PI;
       mesh.scale.setScalar(size);
@@ -663,7 +702,7 @@ export default function DroneScene({
       scene.add(core, ring, smoke, light);
       explosions.push({ core, ring, smoke, light, age: 0, power });
       spawnDebris(position, power);
-      audio.explosion(camera.position.distanceTo(position));
+      audio.explosion(camera.position.distanceTo(position), panFor(position));
     };
 
     const scheduleBlast = (position: THREE.Vector3, power: number, delay: number) => {
@@ -732,16 +771,82 @@ export default function DroneScene({
       emit(message, "hit", points);
     };
 
-    /** Resolves the impact against the armour model. Returns true when an explosion was already created. */
-    const handleTankHit = (hit: THREE.Intersection, shotDir: THREE.Vector3) => {
+    const splashTracks = (position: THREE.Vector3) => {
+      for (const target of targets) {
+        if (!target.alive || target.tracked) continue;
+        const horizontal = Math.hypot(
+          position.x - target.group.position.x,
+          position.z - target.group.position.z,
+        );
+        if (horizontal < 4.2) {
+          damageTrack(target, 40, `ОТСКОК — ХОДОВАЯ: ${target.label}`);
+        }
+      }
+    };
+
+    /** The drone detonates: feed dies, camera tumbles, respawn is scheduled. */
+    const destroyDrone = (blast: boolean) => {
+      if (destroyed) return;
+      destroyed = true;
+      respawnTimer = RESPAWN_DELAY;
+      tumble.set(
+        (Math.random() - 0.5) * 14,
+        (Math.random() - 0.5) * 12,
+        (Math.random() - 0.5) * 14,
+      );
+      if (blast) {
+        createExplosion(state.position, 1.15);
+        addScorch(state.position, 4.2);
+        splashTracks(state.position);
+      }
+      audio.staticBurst();
+      shake = 1;
+      emit("БОРТ УНИЧТОЖЕН — ПЕРЕЗАПУСК В ВОЗДУХЕ", "info");
+    };
+
+    const respawnDrone = () => {
+      destroyed = false;
+      const yaw = (Math.random() - 0.5) * 0.4;
+      state.position.set(
+        START_POSITION.x + (Math.random() - 0.5) * 9,
+        15 + Math.random() * 8,
+        START_POSITION.z + (Math.random() - 0.5) * 7,
+      );
+      state.velocity.set(0, 0, 0);
+      state.yawAngle = yaw;
+      state.pitchAngle = 0;
+      state.rollAngle = 0;
+      state.orientation.setFromEuler(new THREE.Euler(0, yaw, 0, "YXZ"));
+      state.pitchCmd = 0;
+      state.rollCmd = 0;
+      state.yawCmd = 0;
+      state.throttleLever = HOVER_LEVER;
+      state.motorSpool = HOVER_LEVER;
+      audio.armBeeps();
+      emit("НОВЫЙ БОРТ В ВОЗДУХЕ — ПРОДОЛЖАЕМ", "info");
+    };
+
+    /**
+     * Kamikaze impact against a tank: the warhead detonates on contact and the
+     * armour model decides whether the hit penetrates.
+     */
+    const kamikazeImpact = (hit: THREE.Intersection, shotDir: THREE.Vector3) => {
       const targetId = hit.object.userData.targetId as number | undefined;
       const target = targets.find((item) => item.id === targetId);
-      if (!target) return false;
-
       const distance = camera.position.distanceTo(hit.point);
+      const pan = panFor(hit.point);
+
+      if (!target) {
+        createExplosion(hit.point, 1.1);
+        destroyDrone(false);
+        return;
+      }
+
       if (!target.alive) {
-        createExplosion(hit.point, 0.9);
-        return true;
+        emit(`ПОПАДАНИЕ В СГОРЕВШУЮ ТЕХНИКУ: ${target.label}`, "info");
+        createExplosion(hit.point, 1.0);
+        destroyDrone(false);
+        return;
       }
 
       const zone = (hit.object.userData.zone ?? "hullSide") as ZoneId;
@@ -754,157 +859,36 @@ export default function DroneScene({
       }
 
       const resolution = resolveArmorHit(target.type, zone, incidenceCos);
+      const eraNote = resolution.eraFailed ? " (ЭРА НЕ СРАБОТАЛА)" : "";
 
       if (resolution.pen) {
-        audio.impact("pen", distance);
+        audio.impact("pen", distance, pan);
         if (resolution.spec.lethal === "kill") {
           destroyTarget(target, resolution.spec.label, hit.point.clone());
-          return true;
-        }
-        if (resolution.spec.lethal === "track") {
-          createExplosion(hit.point, 0.55);
+        } else if (resolution.spec.lethal === "track") {
+          createExplosion(hit.point, 0.85);
           damageTrack(target, 60, `ПОДБИТА ХОДОВАЯ: ${target.label}`);
-          return true;
-        }
-        if (resolution.spec.lethal === "gun") {
-          createExplosion(hit.point, 0.5);
+        } else if (resolution.spec.lethal === "gun") {
+          createExplosion(hit.point, 0.75);
           if (target.gunDead) {
             emit(`СТВОЛ УЖЕ ВЫВЕДЕН: ${target.label}`, "info");
           } else {
             target.gunDead = true;
             emit(`СТВОЛ ВЫВЕДЕН ИЗ СТРОЯ: ${target.label}`, "hit", 35);
           }
-          return true;
+        } else {
+          createExplosion(hit.point, 1.0);
         }
-        createExplosion(hit.point, 0.7);
-        return true;
-      }
-
-      // Armour held: external detonation, sparks and a ricochet scream.
-      audio.impact("ricochet", distance);
-      createExplosion(hit.point, 0.6);
-      emit(
-        `БРОНЯ ВЫДЕРЖАЛА: ${target.label} ${resolution.spec.label} (${resolution.effectiveArmor} vs ${resolution.penetration} мм)`,
-        "warn",
-      );
-      return true;
-    };
-
-    const fireWarhead = () => {
-      if (ammo <= 0 || !activeRef.current || fireCooldown > 0) return;
-      ammo -= 1;
-      fireCooldown = 0.4;
-      const direction = new THREE.Vector3();
-      camera.getWorldDirection(direction);
-      const group = buildWarheadMesh();
-      group.position.copy(camera.position).addScaledVector(direction, 1.6);
-      group.quaternion.copy(camera.quaternion);
-      scene.add(group);
-      const velocity = direction
-        .clone()
-        .multiplyScalar(55)
-        .addScaledVector(state.velocity, 0.5);
-      warheads.push({ group, velocity, age: 0, motor: 0.45, trailTimer: 0 });
-      shake = Math.max(shake, 0.35);
-      callbacksRef.current.onBombReleased();
-      audio.launch();
-      emit(`ВЫСТРЕЛ ПГ-7В: ОСТАТОК ${ammo}`, "info");
-    };
-
-    const detonateWarhead = (index: number) => {
-      const warhead = warheads[index];
-      scene.remove(warhead.group);
-      warhead.group.traverse((object) => {
-        if (object instanceof THREE.Mesh) {
-          object.geometry.dispose();
-          const materials = Array.isArray(object.material) ? object.material : [object.material];
-          materials.forEach((material) => material.dispose());
-        }
-      });
-      warheads.splice(index, 1);
-    };
-
-    const splashTracks = (position: THREE.Vector3) => {
-      for (const target of targets) {
-        if (!target.alive || target.tracked) continue;
-        const horizontal = Math.hypot(
-          position.x - target.group.position.x,
-          position.z - target.group.position.z,
+      } else {
+        audio.impact("ricochet", distance, pan);
+        createExplosion(hit.point, 1.05);
+        emit(
+          `БРОНЯ ВЫДЕРЖАЛА: ${target.label} ${resolution.spec.label} (${resolution.effectiveArmor} vs ${resolution.penetration} мм)${eraNote}`,
+          "warn",
         );
-        if (horizontal < 4.2) {
-          damageTrack(target, 40, `ОТСКОК ОТ ГРУНТА — ХОДОВАЯ: ${target.label}`);
-        }
       }
-    };
 
-    const updateWarheads = (delta: number) => {
-      if (warheads.length === 0) return;
-      scene.updateMatrixWorld();
-      for (let index = warheads.length - 1; index >= 0; index -= 1) {
-        const warhead = warheads[index];
-        warhead.age += delta;
-        const previous = warhead.group.position.clone();
-
-        if (warhead.motor > 0) {
-          warhead.motor -= delta;
-          const direction = warhead.velocity.clone().normalize();
-          warhead.velocity.addScaledVector(direction, 170 * delta);
-          const speed = warhead.velocity.length();
-          if (speed > 130) warhead.velocity.multiplyScalar(130 / speed);
-        }
-        warhead.velocity.y -= 9.81 * delta;
-        const speed = warhead.velocity.length();
-        warhead.velocity.multiplyScalar(Math.max(0, 1 - speed * 0.0011 * delta));
-        warhead.group.position.addScaledVector(warhead.velocity, delta);
-        // Model nose points along -Z, so aim the +Z axis opposite to velocity.
-        warhead.group.lookAt(warhead.group.position.clone().sub(warhead.velocity));
-        warhead.group.rotateZ(warhead.age * 6);
-
-        // Rocket motor smoke + light flight trail.
-        warhead.trailTimer -= delta;
-        if (warhead.trailTimer <= 0) {
-          const powered = warhead.motor > 0;
-          spawnPuff(
-            warhead.group.position,
-            powered ? 0xd9d4c4 : 0xb8b4a6,
-            powered ? 0.55 : 0.34,
-            powered ? 0.75 : 0.5,
-            powered ? 0.55 : 0.3,
-            powered ? 1.9 : 1.1,
-            0.35,
-          );
-          warhead.trailTimer = powered ? 0.03 : 0.09;
-        }
-
-        const segment = warhead.group.position.clone().sub(previous);
-        const distance = segment.length();
-        let impacted = false;
-        if (distance > 1e-5) {
-          raycaster.set(previous, segment.clone().normalize());
-          raycaster.far = distance;
-          const hits = raycaster.intersectObjects(tankGroups, true);
-          if (hits.length > 0) {
-            const handled = handleTankHit(hits[0], segment.clone().normalize());
-            if (!handled) createExplosion(hits[0].point, 0.85);
-            impacted = true;
-          }
-        }
-
-        const ground = terrainHeight(warhead.group.position.x, warhead.group.position.z);
-        if (!impacted && warhead.group.position.y <= ground + 0.3) {
-          warhead.group.position.y = ground + 0.3;
-          createExplosion(warhead.group.position, 1.2);
-          addScorch(warhead.group.position, 4.6);
-          audio.impact("ground", camera.position.distanceTo(warhead.group.position));
-          splashTracks(warhead.group.position);
-          impacted = true;
-        }
-        if (!impacted && warhead.age > 7) {
-          createExplosion(warhead.group.position, 1.0);
-          impacted = true;
-        }
-        if (impacted) detonateWarhead(index);
-      }
+      destroyDrone(false);
     };
 
     const updateExplosions = (delta: number) => {
@@ -946,9 +930,7 @@ export default function DroneScene({
         }
         puff.sprite.position.addScaledVector(puff.drift, delta);
         puff.sprite.position.y += puff.rise * delta;
-        puff.sprite.scale.setScalar(
-          THREE.MathUtils.lerp(puff.startScale, puff.growTo, ratio),
-        );
+        puff.sprite.scale.setScalar(THREE.MathUtils.lerp(puff.startScale, puff.growTo, ratio));
         puff.sprite.material.opacity = puff.startOpacity * (1 - ratio * ratio);
       }
     };
@@ -1040,7 +1022,6 @@ export default function DroneScene({
       let rollInput = (keys.has("ArrowRight") ? 1 : 0) - (keys.has("ArrowLeft") ? 1 : 0);
       let pitchInput = (keys.has("KeyW") || keys.has("ArrowUp") ? 1 : 0) - (keys.has("KeyS") || keys.has("ArrowDown") ? 1 : 0);
       boost = keys.has("KeyE");
-      let drop = keys.has("Space");
 
       const keyboardUp = keys.has("ShiftLeft") || keys.has("ShiftRight");
       const keyboardDown = keys.has("ControlLeft") || keys.has("ControlRight");
@@ -1055,7 +1036,6 @@ export default function DroneScene({
         pitchInput += -deadzone(gamepad.axes[3] ?? 0);
         throttle = (1 - deadzone(gamepad.axes[1] ?? 0, 0.08)) / 2;
         boost ||= Boolean(gamepad.buttons[0]?.pressed);
-        drop ||= Boolean(gamepad.buttons[7]?.pressed) || (gamepad.buttons[7]?.value ?? 0) > 0.55;
         if (keyboardUp) throttle = Math.min(1, throttle + 0.2);
         if (keyboardDown) throttle = Math.max(0, throttle - 0.2);
       }
@@ -1068,7 +1048,6 @@ export default function DroneScene({
           throttle,
           boost,
         } satisfies FpvControls,
-        drop,
         gamepad: Boolean(gamepad),
       };
     };
@@ -1078,14 +1057,16 @@ export default function DroneScene({
       camera.getWorldDirection(forward);
       let closestRange: number | null = null;
       let smallestAngle = Number.POSITIVE_INFINITY;
-      for (const target of targets) {
-        if (!target.alive) continue;
-        const toTarget = target.group.position.clone().sub(camera.position);
-        const distance = toTarget.length();
-        const angle = forward.angleTo(toTarget.normalize());
-        if (angle < smallestAngle && forward.dot(toTarget) > 0) {
-          smallestAngle = angle;
-          closestRange = distance;
+      if (!destroyed) {
+        for (const target of targets) {
+          if (!target.alive) continue;
+          const toTarget = target.group.position.clone().sub(camera.position);
+          const distance = toTarget.length();
+          const angle = forward.angleTo(toTarget.normalize());
+          if (angle < smallestAngle && forward.dot(toTarget) > 0) {
+            smallestAngle = angle;
+            closestRange = distance;
+          }
         }
       }
       const ground = terrainHeight(camera.position.x, camera.position.z);
@@ -1093,7 +1074,7 @@ export default function DroneScene({
         camera.position.x - START_POSITION.x,
         camera.position.z - START_POSITION.z,
       );
-      const locked = smallestAngle < 0.115 && closestRange !== null;
+      const locked = !destroyed && smallestAngle < 0.115 && closestRange !== null;
       if (locked && !previousLocked) audio.beep();
       previousLocked = locked;
 
@@ -1107,6 +1088,7 @@ export default function DroneScene({
         locked,
         gamepad: gamepadConnected,
         flightMode: state.mode,
+        respawning: destroyed,
       });
     };
 
@@ -1114,42 +1096,63 @@ export default function DroneScene({
       animationFrame = window.requestAnimationFrame(animate);
       const delta = Math.min((now - lastTime) / 1000, 0.04);
       lastTime = now;
-      const { controls: rawControls, drop, gamepad } = readControls(delta);
-      const controls: FpvControls = { ...rawControls };
+      const { controls, gamepad } = readControls(delta);
 
       if (activeRef.current) {
         elapsed += delta;
+        const previousPosition = state.position.clone();
 
-        if (keys.has("KeyC") && !modeToggleHeld) {
-          state.mode = state.mode === "ANGLE" ? "ACRO" : "ANGLE";
-          emit(`РЕЖИМ ПОЛЁТА: ${state.mode}`, "info");
-        }
-        modeToggleHeld = keys.has("KeyC");
+        if (destroyed) {
+          // The ruined airframe tumbles down while the feed is dead.
+          stepFpv(
+            state,
+            { pitch: 0, roll: 0, yaw: 0, throttle: 0, boost: false },
+            delta,
+            terrainHeight(state.position.x, state.position.z),
+            elapsed,
+          );
+          const spin = new THREE.Quaternion().setFromEuler(
+            new THREE.Euler(tumble.x * delta, tumble.y * delta, tumble.z * delta),
+          );
+          state.orientation.multiply(spin);
+          respawnTimer -= delta;
+          if (respawnTimer <= 0) respawnDrone();
+        } else {
+          const ground = terrainHeight(state.position.x, state.position.z);
+          const result = stepFpv(state, controls, delta, ground, elapsed);
+          state.position.x = THREE.MathUtils.clamp(state.position.x, -122, 122);
+          state.position.z = THREE.MathUtils.clamp(state.position.z, -218, 88);
 
-        const ground = terrainHeight(state.position.x, state.position.z);
-        const result = stepFpv(state, controls, delta, ground, elapsed);
-        state.position.x = THREE.MathUtils.clamp(state.position.x, -122, 122);
-        state.position.z = THREE.MathUtils.clamp(state.position.z, -218, 88);
+          // Drone vs armour: segment raycast so nothing tunnels through.
+          const segment = state.position.clone().sub(previousPosition);
+          const segmentLength = segment.length();
+          if (segmentLength > 1e-4) {
+            scene.updateMatrixWorld();
+            raycaster.set(previousPosition, segment.clone().normalize());
+            raycaster.far = segmentLength;
+            const hits = raycaster.intersectObjects(tankGroups, true);
+            if (hits.length > 0) {
+              kamikazeImpact(hits[0], segment.clone().normalize());
+            }
+          }
 
-        if (result.groundImpact > 5.5) {
-          shake = Math.max(shake, Math.min(1, result.groundImpact / 14));
-          audio.thud(result.groundImpact);
-        }
-
-        if (drop && !previousDrop) fireWarhead();
-        previousDrop = drop;
-        fireCooldown = Math.max(0, fireCooldown - delta);
-
-        if (ammo === 0 && warheads.length === 0 && targets.some((target) => target.alive)) {
-          outOfAmmoTimer += delta;
-          if (outOfAmmoTimer > 2.2 && !missionClosed) {
-            missionClosed = true;
-            callbacksRef.current.onOutOfAmmo();
+          if (!destroyed) {
+            const horizontalSpeed = Math.hypot(state.velocity.x, state.velocity.z);
+            const onGround = state.position.y <= ground + 0.3;
+            if (result.groundImpact > GROUND_DEATH_SPEED) {
+              shake = Math.max(shake, Math.min(1, result.groundImpact / 14));
+              audio.thud(result.groundImpact);
+              destroyDrone(true);
+            } else if (onGround && horizontalSpeed > SKIM_DEATH_SPEED) {
+              audio.thud(horizontalSpeed);
+              destroyDrone(true);
+            } else if (result.groundImpact > 1.5) {
+              shake = Math.max(shake, Math.min(0.6, result.groundImpact / 16));
+              audio.thud(result.groundImpact);
+            }
           }
         }
-      } else {
-        modeToggleHeld = keys.has("KeyC");
-        previousDrop = drop;
+      } else if (!destroyed) {
         state.velocity.multiplyScalar(Math.exp(-2.8 * delta));
         const ground = terrainHeight(state.position.x, state.position.z);
         stepFpv(
@@ -1163,7 +1166,6 @@ export default function DroneScene({
         state.position.z = THREE.MathUtils.clamp(state.position.z, -218, 88);
       }
 
-      updateWarheads(delta);
       updateExplosions(delta);
       updatePuffs(delta);
       updateDebris(delta);
@@ -1187,6 +1189,13 @@ export default function DroneScene({
       camera.quaternion.multiply(new THREE.Quaternion().setFromEuler(jitter));
       shake *= Math.exp(-4.2 * delta);
 
+      // Follow-mechanics: sky, sun disc and shadow frustum ride with the drone.
+      sky.position.copy(camera.position);
+      sunDisc.position.copy(camera.position).addScaledVector(SUN_OFFSET, 3.4);
+      sun.position.copy(camera.position).add(SUN_OFFSET);
+      sun.target.position.set(camera.position.x, 0, camera.position.z);
+      sun.target.updateMatrixWorld();
+
       audio.updateMotor(state.motorSpool, Math.abs(state.velocity.y) * 0.02);
       audio.updateWind(state.velocity.length());
       let nearestTank = Number.POSITIVE_INFINITY;
@@ -1204,7 +1213,7 @@ export default function DroneScene({
         updateTelemetry(gamepad);
         telemetryElapsed = 0;
       }
-      renderer.render(scene, camera);
+      composer.render();
     };
 
     animationFrame = window.requestAnimationFrame(animate);
@@ -1234,12 +1243,14 @@ export default function DroneScene({
       scorchTexture.dispose();
       scorchGeometry.dispose();
       debrisGeometry.dispose();
+      composer.dispose();
       audio.dispose();
       audioRef.current = null;
-      renderer.dispose();
-      renderer.domElement.remove();
+      renderer = null;
+      webglRenderer.dispose();
+      webglRenderer.domElement.remove();
     };
-  }, [initialAmmo]);
+  }, []);
 
   return <div ref={mountRef} className="scene-mount" aria-label="Трехмерная сцена полета FPV-дрона" />;
 }

@@ -5,7 +5,6 @@ type GameMode = "briefing" | "running" | "paused" | "ended";
 type MissionResult = "success" | "failed" | null;
 type FeedItem = { id: number; message: string; kind: HitEventKind };
 
-const INITIAL_AMMO = 8;
 const INITIAL_TARGETS = 7;
 const MISSION_SECONDS = 180;
 
@@ -18,7 +17,8 @@ const initialTelemetry: Telemetry = {
   range: null,
   locked: false,
   gamepad: false,
-  flightMode: "ANGLE",
+  flightMode: "ACRO",
+  respawning: false,
 };
 
 function formatTime(totalSeconds: number) {
@@ -53,7 +53,6 @@ function App() {
   const [result, setResult] = useState<MissionResult>(null);
   const [round, setRound] = useState(0);
   const [score, setScore] = useState(0);
-  const [ammo, setAmmo] = useState(INITIAL_AMMO);
   const [targets, setTargets] = useState(INITIAL_TARGETS);
   const [timeLeft, setTimeLeft] = useState(MISSION_SECONDS);
   const [telemetry, setTelemetry] = useState<Telemetry>(initialTelemetry);
@@ -69,7 +68,6 @@ function App() {
   const launchMission = useCallback(() => {
     setRound((value) => value + 1);
     setScore(0);
-    setAmmo(INITIAL_AMMO);
     setTargets(INITIAL_TARGETS);
     setTimeLeft(MISSION_SECONDS);
     setTelemetry(initialTelemetry);
@@ -94,10 +92,6 @@ function App() {
     },
     [endMission],
   );
-
-  const handleBombReleased = useCallback(() => {
-    setAmmo((value) => Math.max(0, value - 1));
-  }, []);
 
   const handleEvent = useCallback((message: string, kind: HitEventKind, points?: number) => {
     if (points) setScore((value) => value + points);
@@ -174,15 +168,12 @@ function App() {
         key={round}
         active={isActive}
         muted={muted}
-        initialAmmo={INITIAL_AMMO}
         onTargetDestroyed={handleTargetDestroyed}
-        onBombReleased={handleBombReleased}
         onTelemetry={setTelemetry}
-        onOutOfAmmo={() => endMission("failed")}
         onEvent={handleEvent}
       />
 
-      <div className="screen-fx" aria-hidden="true" />
+      <div className={`screen-fx ${telemetry.respawning ? "screen-fx--lost" : ""}`} aria-hidden="true" />
       <div className="vignette" aria-hidden="true" />
 
       {mode !== "briefing" && (
@@ -237,10 +228,24 @@ function App() {
             <strong>{Math.round(telemetry.battery)}%</strong>
           </div>
 
-          <Crosshair locked={telemetry.locked} />
-          <div className={`lock-readout ${telemetry.locked ? "lock-readout--active" : ""}`}>
-            {telemetry.locked ? "ЦЕЛЬ В СЕКТОРЕ" : "ПОИСК ЦЕЛИ"}
-            {telemetry.range !== null && <strong>{Math.round(telemetry.range)} M</strong>}
+          <Crosshair locked={telemetry.locked && !telemetry.respawning} />
+          <div
+            className={`lock-readout ${
+              telemetry.respawning
+                ? "lock-readout--respawn"
+                : telemetry.locked
+                  ? "lock-readout--active"
+                  : ""
+            }`}
+          >
+            {telemetry.respawning
+              ? "СИГНАЛ ПОТЕРЯН — ПЕРЕЗАПУСК БОРТА"
+              : telemetry.locked
+                ? "ЦЕЛЬ В СЕКТОРЕ"
+                : "ПОИСК ЦЕЛИ"}
+            {!telemetry.respawning && telemetry.range !== null && (
+              <strong>{Math.round(telemetry.range)} M</strong>
+            )}
           </div>
 
           <footer className="hud__bottom">
@@ -253,7 +258,6 @@ function App() {
             </div>
             <div className="payload">
               <span>ЦЕЛИ <strong>{targets}</strong></span>
-              <span>ПГ-7В <strong>{ammo}</strong></span>
               <span>СЧЕТ <strong>{score.toString().padStart(4, "0")}</strong></span>
             </div>
           </footer>
@@ -275,8 +279,9 @@ function App() {
           <div className="briefing__eyebrow"><span /> БРАУЗЕРНАЯ FPV-СИСТЕМА</div>
           <h1>BLACK<br /><em>KITE</em></h1>
           <p className="briefing__lead">
-            Колонна: Т-72Б и Т-90А с динамической защитой. На борту — кумулятивные
-            боеголовки ПГ-7В: лоб Т-90 держит, бей в борт, моторный отсек или сверху.<br />
+            Ты — FPV-камикадзе «BLACK KITE» в режиме ACRO. Колонна: Т-72Б и Т-90А
+            с динамической защитой — лоб Т-90 держит удар, бей в борт, корму или
+            сверху. После удара борт пересоздаётся в воздухе.<br />
             USB-контроллер Xbox определяется автоматически.
           </p>
           <button className="launch-button" type="button" onClick={launchMission}>
@@ -284,15 +289,13 @@ function App() {
             <b>A</b>
           </button>
           <div className="briefing__controls">
-            <div><strong>ЛЕВЫЙ СТИК</strong><span>Тяга / поворот</span></div>
-            <div><strong>ПРАВЫЙ СТИК</strong><span>Тангаж / крен</span></div>
-            <div><strong>RT</strong><span>ПГ-7В: сброс</span></div>
+            <div><strong>ЛЕВЫЙ СТИК</strong><span>Тяга / рыскание</span></div>
+            <div><strong>ПРАВЫЙ СТИК</strong><span>Крен / тангаж</span></div>
             <div><strong>A</strong><span>Перегрузка моторов</span></div>
-            <div><strong>C</strong><span>ANGLE / ACRO</span></div>
           </div>
           <p className="briefing__fallback">
-            Клавиатура: W/S — тангаж, A/D — рыскание, стрелки — крен, Shift/Ctrl — газ,
-            пробел — пуск, C — режим полёта
+            Клавиатура: W/S — тангаж, A/D — рыскание, стрелки — крен,
+            Shift/Ctrl — рычаг тяги, E — форсаж, ESC — пауза
           </p>
         </section>
       )}
