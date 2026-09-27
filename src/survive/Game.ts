@@ -242,7 +242,7 @@ export class Game {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.05;
+    this.renderer.toneMappingExposure = 1.2;
     this.mount.appendChild(this.renderer.domElement);
 
     this.camera = new THREE.PerspectiveCamera(62, 1, 0.1, 900);
@@ -328,13 +328,13 @@ export class Game {
       return v - Math.floor(v);
     };
     // drifting clouds (billboards, ignore fog)
-    const cloudMat = new THREE.SpriteMaterial({ map: photoTexture('particle', 1, 1, softDotTexture), color: '#cfd6e4', transparent: true, opacity: 0.5, depthWrite: false, fog: false });
+    const cloudMat = new THREE.SpriteMaterial({ map: glowTexture(), color: '#cfd6e4', transparent: true, opacity: 0.42, depthWrite: false, fog: false });
     for (let i = 0; i < 9; i++) {
       const s = new THREE.Sprite(cloudMat);
       const a = (i / 9) * Math.PI * 2 + crnd(i) * 0.5;
       const rad = 420 + crnd(i + 50) * 180;
       s.position.set(Math.cos(a) * rad, 130 + crnd(i + 99) * 90, Math.sin(a) * rad);
-      const sc = 130 + crnd(i + 7) * 130;
+      const sc = 100 + crnd(i + 7) * 90;
       s.scale.set(sc, sc * 0.42, 1);
       this.scene.add(s);
       this.clouds.push(s);
@@ -496,7 +496,7 @@ export class Game {
     this.spawnParticles(p.x, p.y + 1, p.z, big ? 20 : 8, '#2a2a26', 3, big ? 2.2 : 1.2, 4);
     const light = new THREE.PointLight('#ff9a4a', big ? 120 : 40, big ? 40 : 20, 1.8);
     light.position.copy(p).add(new THREE.Vector3(0, 2, 0));
-    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: photoTexture('fire', 1, 1, softDotTexture), color: '#ffe0b0', transparent: true, opacity: 1, depthWrite: false }));
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: photoTexture('fire', 1, 1, softDotTexture), color: '#ffe0b0', transparent: true, opacity: 1, depthWrite: false, blending: THREE.AdditiveBlending }));
     sprite.position.copy(light.position);
     sprite.scale.set(big ? 8 : 4, big ? 8 : 4, 1);
     this.scene.add(light, sprite);
@@ -556,15 +556,12 @@ export class Game {
 
     if (ch === 'city') {
       this.scene.background = new THREE.Color('#9aa3b5');
-      this.scene.fog = new THREE.FogExp2('#9aa3b5', 0.0075);
+      this.scene.fog = new THREE.FogExp2('#9aa3b5', 0.0058);
       this.setSky('#2e3a55', '#9aa3b5', '#3a3630');
       this.sun.color.set('#ffb464');
-      this.sun.intensity = 2.0;
-      this.sun.position.set(-90, 38, 30);
-      this.hemi.intensity = 0.85;
-      this.sun.color.set('#ffd9a8');
-      this.sun.intensity = 2.0;
-      this.hemi.intensity = 0.85;
+      this.sun.intensity = 2.9;
+      this.sun.position.set(-70, 55, 35);
+      this.hemi.intensity = 1.25;
       this.zone = this.world.load(this.scene, 'city');
       this.pos.copy(this.zone.spawn);
       this.camYaw = this.zone.spawnYaw;
@@ -668,12 +665,9 @@ export class Game {
       this.scene.fog = new THREE.FogExp2('#a8bfd4', 0.006);
       this.setSky('#3a6a9a', '#a8bfd4', '#4a4a40');
       this.sun.color.set('#fff2d8');
-      this.sun.intensity = 2.4;
+      this.sun.intensity = 2.6;
       this.sun.position.set(-40, 90, 30);
-      this.hemi.intensity = 1.0;
-      this.sun.color.set('#fff2dc');
-      this.sun.intensity = 2.4;
-      this.hemi.intensity = 1.0;
+      this.hemi.intensity = 1.1;
       this.zone = this.world.load(this.scene, 'training');
       this.pos.copy(this.zone.spawn);
       this.camYaw = this.zone.spawnYaw;
@@ -693,9 +687,9 @@ export class Game {
       this.scene.fog = new THREE.FogExp2('#8a94a8', 0.008);
       this.setSky('#3a4255', '#8a94a8', '#33302a');
       this.sun.color.set('#e8d0b0');
-      this.sun.intensity = 1.4;
+      this.sun.intensity = 1.7;
       this.sun.position.set(-60, 60, 40);
-      this.hemi.intensity = 0.9;
+      this.hemi.intensity = 1.0;
       this.zone = this.world.load(this.scene, 'transport');
       this.rideT = 0;
       this.rideSub = 0;
@@ -707,12 +701,9 @@ export class Game {
       this.scene.fog = new THREE.FogExp2('#7d8894', 0.009);
       this.setSky('#4a525e', '#7d8894', '#2e2b24');
       this.sun.color.set('#cfd4dc');
-      this.sun.intensity = 1.15;
+      this.sun.intensity = 1.5;
       this.sun.position.set(30, 80, -20);
-      this.hemi.intensity = 1.05;
-      this.sun.color.set('#d8dce4');
-      this.sun.intensity = 1.6;
-      this.hemi.intensity = 0.9;
+      this.hemi.intensity = 1.15;
       this.zone = this.world.load(this.scene, 'frontline');
       this.pos.copy(this.zone.spawn);
       const gy = this.zone.groundY(this.pos.x, this.pos.z);

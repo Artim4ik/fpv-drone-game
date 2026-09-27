@@ -193,7 +193,7 @@ function buildCity(): ZoneData {
   const ROAD_W = 10;
 
   // ground base (Kyiv courtyards dirt)
-  const groundMat = new THREE.MeshStandardMaterial({ map: photoTexture('dirt', 20, 20, dirtTexture), color: '#a9aeb8', roughness: 1 });
+  const groundMat = new THREE.MeshStandardMaterial({ map: photoTexture('dirt', 20, 20, dirtTexture), color: '#c6cbd4', roughness: 1 });
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(HALF * 2 + 60, HALF * 2 + 60), groundMat);
   ground.rotation.x = -Math.PI / 2;
   ground.position.y = -0.05;
@@ -459,7 +459,7 @@ function buildCity(): ZoneData {
 
   // street lights along roads
   const poleMat = new THREE.MeshStandardMaterial({ color: '#2c2c2c', roughness: 0.8 });
-  const lampHeadMat = new THREE.MeshStandardMaterial({ color: '#444444', emissive: '#ffca7a', emissiveIntensity: 1.6 });
+  const lampHeadMat = new THREE.MeshStandardMaterial({ color: '#444444', emissive: '#ffca7a', emissiveIntensity: 2.6 });
   const lampLights: THREE.PointLight[] = [];
   const wirePts: THREE.Vector3[] = [];
   for (const r of ROADS) {
@@ -501,11 +501,16 @@ function buildCity(): ZoneData {
   }
 
   // a few real point lights near spawn (dusk mood)
+  const lampGlowMat = new THREE.SpriteMaterial({ map: glowTexture(), color: '#ffca7a', transparent: true, opacity: 0.6, depthWrite: false, blending: THREE.AdditiveBlending });
   for (const [x, z] of [[6.5, 12], [12, -6.5], [-49.5, -44], [62.5, 52]]) {
     const pl = new THREE.PointLight('#ffca7a', 12, 26, 1.8);
     pl.position.set(x, 6.6, z);
     group.add(pl);
     lampLights.push(pl);
+    const lgs = new THREE.Sprite(lampGlowMat);
+    lgs.scale.set(2.6, 2.6, 1);
+    lgs.position.set(x, 6.6, z);
+    group.add(lgs);
   }
 
   // Khreshchatyk street plates on lamp poles near the center

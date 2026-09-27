@@ -117,10 +117,10 @@ export function signTexture(text: string, bg = '#1f4d3a', fg = '#e8e4d2'): THREE
 /** Asphalt road with lane dashes (tile along length). */
 export function roadTexture(): THREE.CanvasTexture {
   const [c, g] = canvas(256, 256);
-  g.fillStyle = '#33342f';
+  g.fillStyle = '#41423c';
   g.fillRect(0, 0, 256, 256);
   for (let i = 0; i < 900; i++) {
-    const v = 40 + Math.random() * 30;
+    const v = 52 + Math.random() * 32;
     g.fillStyle = `rgb(${v},${v},${v - 4})`;
     g.fillRect(Math.random() * 256, Math.random() * 256, 2, 2);
   }

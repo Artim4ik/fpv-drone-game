@@ -36,5 +36,5 @@ License: **MIT**
   panel tower with balconies, city residential blocks
 - `facade2.jpg` (from `apartments2.png`, resized to 1024w, q62) — dark brick
   tower block, city residential blocks
-- `facade3.jpg` (from `building_5c.png`, resized to 1024w, q62) — red brick
-  apartment block, city residential blocks
+- `facade3.jpg` (from `apartments5.png`, resized to 1024w, q62) — red-brick
+  residential tower with balconies, city residential blocks

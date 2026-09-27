@@ -186,6 +186,9 @@ export function makeHumanoid(kind: ModelKind, seed = 1, armed = false): Humanoid
   // head
   const headG = new THREE.Group();
   headG.position.y = 1.72;
+  const neck = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.24, 0.12), skin);
+  neck.position.y = -0.12;
+  headG.add(neck);
   const faceMat = new THREE.MeshStandardMaterial({ map: getFace(seed, skinHex), roughness: 0.8 });
   const head = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.3, 0.26), [skin, skin, skin, skin, faceMat, skin]);
   head.position.y = 0.12;
