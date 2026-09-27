@@ -590,3 +590,45 @@ export function treadTexture(): THREE.CanvasTexture {
   }
   return toTexture(c, 6, 1);
 }
+
+// --- Kyiv street signage / market awnings ---
+export function signTextTexture(text: string, bg = '#1d4d2b', fg = '#f5f2e4', w = 512, h = 128): THREE.Texture {
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const g = c.getContext('2d')!;
+  g.fillStyle = bg;
+  g.fillRect(0, 0, w, h);
+  g.strokeStyle = fg;
+  g.lineWidth = 6;
+  g.strokeRect(8, 8, w - 16, h - 16);
+  g.fillStyle = fg;
+  g.font = 'bold ' + Math.floor(h * 0.52) + 'px sans-serif';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText(text, w / 2, h / 2 + 2);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return t;
+}
+
+export function awningTexture(c1 = '#a8352c', c2 = '#e8e2d2'): THREE.Texture {
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 256;
+  const g = c.getContext('2d')!;
+  for (let i = 0; i < 8; i++) {
+    g.fillStyle = i % 2 ? c1 : c2;
+    g.fillRect(i * 32, 0, 32, 256);
+  }
+  const grad = g.createLinearGradient(0, 0, 0, 256);
+  grad.addColorStop(0, 'rgba(255,255,255,0.25)');
+  grad.addColorStop(1, 'rgba(0,0,0,0.25)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 256, 256);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+}

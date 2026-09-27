@@ -252,49 +252,67 @@ export function makeHumanoid(kind: ModelKind, seed = 1, armed = false): Humanoid
   }
 
   const setPose = (pose: PoseState, t: number, moving: number): void => {
-    const swing = Math.sin(t * 9) * 0.6 * moving;
-    const swing2 = Math.sin(t * 9 + Math.PI) * 0.6 * moving;
-    // defaults
+    const w = t * (6.5 + moving * 4.5);
+    const s1 = Math.sin(w);
+    const s2 = Math.sin(w + Math.PI);
+    const amp = 0.62 * moving;
+    const breathe = Math.sin(t * 2.2);
+    // reset shared channels
     g.rotation.x = 0;
+    g.rotation.z = 0;
+    g.scale.set(1, 1, 1);
+    legL.scale.set(1, 1, 1);
+    legR.scale.set(1, 1, 1);
+    torso.rotation.set(0, 0, 0);
+    headG.rotation.set(0, 0, 0);
     const baseY = 0;
     if (pose === 'down') {
       g.rotation.x = -Math.PI / 2;
       g.position.y = baseY + 0.3;
+      headG.rotation.z = 0.2;
       return;
     }
     if (pose === 'sit') {
       legL.rotation.x = -1.5;
       legR.rotation.x = -1.5;
-      armL.rotation.x = -0.4;
-      armR.rotation.x = -0.4;
-      torso.position.y = 0.95;
+      armL.rotation.x = -0.4 + breathe * 0.02;
+      armR.rotation.x = -0.4 - breathe * 0.02;
+      torso.position.y = 0.95 + breathe * 0.008;
+      torso.rotation.x = 0.09;
       headG.position.y = 1.47;
+      headG.rotation.x = 0.12;
       g.position.y = baseY;
       return;
     }
-    torso.position.y = 1.2;
+    torso.position.y = 1.2 + breathe * 0.012;
     headG.position.y = 1.72;
     if (pose === 'crouch') {
-      const s = 0.72;
-      g.scale.set(1, s, 1);
-      legL.rotation.x = -0.9;
-      legR.rotation.x = -0.9;
-      armL.rotation.x = swing * 0.5;
-      armR.rotation.x = swing2 * 0.5;
-      g.position.y = baseY;
+      g.scale.set(1, 0.72, 1);
+      legL.rotation.x = -0.9 + s1 * 0.55 * moving;
+      legR.rotation.x = -0.9 + s2 * 0.55 * moving;
+      armL.rotation.x = s2 * 0.55 * moving + breathe * 0.02;
+      armR.rotation.x = s1 * 0.55 * moving - breathe * 0.02;
+      torso.rotation.x = 0.3;
+      headG.rotation.x = -0.22;
+      g.rotation.z = s1 * 0.03 * moving;
+      g.position.y = baseY + Math.abs(Math.sin(w)) * 0.04 * moving;
       return;
     }
-    g.scale.set(1, 1, 1);
     if (pose === 'aim') {
-      legL.rotation.x = swing * 0.3;
-      legR.rotation.x = swing2 * 0.3;
-      armL.rotation.x = -1.35;
-      armR.rotation.x = -1.35;
+      legL.rotation.x = s1 * 0.28 * moving;
+      legR.rotation.x = s2 * 0.28 * moving;
+      const sway = breathe * 0.025;
+      armL.rotation.x = -1.35 + sway;
+      armR.rotation.x = -1.35 + sway;
+      armL.rotation.z = 0.12;
+      armR.rotation.z = -0.12;
+      torso.rotation.y = s1 * 0.05 * moving;
+      headG.rotation.x = -0.06;
       if (rifle) {
         rifle.position.set(0.12, 1.5, 0.42);
-        rifle.rotation.x = 0;
+        rifle.rotation.x = sway * 0.5;
       }
-      g.position.y = baseY;
+      g.position.y = baseY + Math.abs(Math.sin(w)) * 0.03 * moving;
       return;
     }
     if (rifle) {
@@ -308,25 +326,44 @@ export function makeHumanoid(kind: ModelKind, seed = 1, armed = false): Humanoid
       armR.rotation.x = -2 - j * 2;
       legL.rotation.x = 0.5 + j;
       legR.rotation.x = -0.5 + j;
+      headG.rotation.y = Math.sin(t * 24) * 0.3;
       g.position.y = baseY;
       return;
     }
-    g.rotation.z = 0;
-    legL.rotation.x = swing;
-    legR.rotation.x = swing2;
-    armL.rotation.x = swing2 * 0.8;
-    armR.rotation.x = swing * 0.8;
+    // walk / run / idle / guard
+    const runK = moving > 0.7 ? (moving - 0.7) / 0.3 : 0;
+    legL.rotation.x = s1 * amp;
+    legR.rotation.x = s2 * amp;
+    // knee illusion: trailing leg shortens a touch
+    legL.scale.y = 1 - Math.max(0, -s1) * 0.06 * moving;
+    legR.scale.y = 1 - Math.max(0, -s2) * 0.06 * moving;
+    armL.rotation.x = s2 * amp * 0.9;
+    armR.rotation.x = s1 * amp * 0.9;
+    armL.rotation.z = 0.07 + runK * 0.05;
+    armR.rotation.z = -0.07 - runK * 0.05;
     if (pose === 'guard') {
-      armL.rotation.x = -0.5;
-      armR.rotation.x = -0.5;
+      armL.rotation.x = -0.55 + breathe * 0.02;
+      armR.rotation.x = -0.55 - breathe * 0.02;
     }
-    // idle breathing
+    // hips + torso counter-sway, run lean
+    g.rotation.z = s1 * 0.035 * moving;
+    torso.rotation.y = s1 * 0.09 * moving;
+    torso.rotation.x = -0.05 * moving - runK * 0.14;
+    headG.rotation.x = 0.07 * moving + Math.sin(w * 2) * 0.015 * moving;
     if (moving < 0.05) {
-      torso.position.y = 1.2 + Math.sin(t * 2) * 0.012;
-      armL.rotation.x = Math.sin(t * 2) * 0.03;
-      armR.rotation.x = -Math.sin(t * 2) * 0.03;
+      // idle: weight shift + look around
+      g.rotation.z = Math.sin(t * 0.5 + seed) * 0.02;
+      armL.rotation.x = breathe * 0.03;
+      armR.rotation.x = -breathe * 0.03;
+      headG.rotation.y = Math.sin(t * 0.45 + seed * 2.3) * 0.38;
+      headG.rotation.x = Math.sin(t * 0.8 + seed) * 0.05;
+      if (pose === 'guard') {
+        armL.rotation.x = -0.55 + breathe * 0.02;
+        armR.rotation.x = -0.55 - breathe * 0.02;
+        headG.rotation.y = Math.sin(t * 0.3 + seed) * 0.5;
+      }
     }
-    g.position.y = baseY + Math.abs(Math.sin(t * 9)) * 0.05 * moving;
+    g.position.y = baseY + Math.abs(Math.sin(w)) * 0.055 * moving;
   };
 
   return { group: g, head: headG, torso, armL, armR, legL, legR, rifle, setPose };

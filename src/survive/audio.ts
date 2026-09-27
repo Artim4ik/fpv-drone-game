@@ -26,6 +26,10 @@ export class AudioEngine {
   private sirenOn = false;
   private cannonBuf: AudioBuffer | null = null;
   private cannonLoading = false;
+  private sfxBufs = new Map<string, AudioBuffer>();
+  private sfxLoading = new Set<string>();
+  private loopNodes = new Map<string, AudioNode[]>();
+  private loopTimers = new Map<string, number>();
 
   get isMuted(): boolean {
     return this.muted;
@@ -245,6 +249,7 @@ export class AudioEngine {
     if (vol < 0.02) return;
     this.thump(vol, 70);
     this.blip(300, 0.6, vol * 0.4, 'sawtooth', 40);
+    this.playSample('blast_near', vol * 0.55, 0.9 + Math.random() * 0.2);
   }
 
   uiClick(): void {
@@ -391,6 +396,350 @@ export class AudioEngine {
       src.connect(f).connect(g).connect(this.master);
       src.start();
       window.setTimeout(() => this.blip(95, 0.14, 0.28, 'square', 55), 380);
+    } catch {
+      /* ignore */
+    }
+  }
+
+
+  // ---------------- sample-based SFX (GitHub) ----------------
+  private ensureSample(key: 'alarm' | 'blast_far' | 'blast_near' | 'launch' | 'rumble'): void {
+    if (!this.ctx || this.sfxBufs.has(key) || this.sfxLoading.has(key)) return;
+    this.sfxLoading.add(key);
+    import('./assets')
+      .then(({ ASSET_URLS }) => {
+        if (!this.ctx) return;
+        const url = (ASSET_URLS as unknown as Record<string, string>)[key];
+        if (!url) return;
+        fetch(url)
+          .then((r) => r.arrayBuffer())
+          .then((b) => this.ctx!.decodeAudioData(b))
+          .then((buf) => {
+            this.sfxBufs.set(key, buf);
+          })
+          .catch(() => {
+            /* keep synth */
+          });
+      })
+      .catch(() => {
+        /* keep synth */
+      });
+  }
+
+  /** Play a cached sample; triggers async load on first use. Null when not ready. */
+  private playSample(
+    key: 'alarm' | 'blast_far' | 'blast_near' | 'launch' | 'rumble',
+    vol: number,
+    rate = 1,
+    loop = false,
+    fadeIn = 0.05,
+    filterFreq = 0,
+  ): AudioBufferSourceNode | null {
+    if (!this.ctx || !this.master || this.muted) return null;
+    this.ensureSample(key);
+    const buf = this.sfxBufs.get(key);
+    if (!buf) return null;
+    try {
+      const ctx = this.ctx;
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.loop = loop;
+      src.playbackRate.value = rate;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(Math.max(0.001, vol), ctx.currentTime + Math.max(0.01, fadeIn));
+      src.connect(g);
+      if (filterFreq > 0) {
+        const f = ctx.createBiquadFilter();
+        f.type = 'lowpass';
+        f.frequency.value = filterFreq;
+        g.connect(f).connect(this.master);
+      } else {
+        g.connect(this.master);
+      }
+      src.start();
+      return src;
+    } catch {
+      return null;
+    }
+  }
+
+  private stopLoop(name: string, fade = 0.5): void {
+    const nodes = this.loopNodes.get(name);
+    if (nodes) {
+      const ctx = this.ctx;
+      for (const n of nodes) {
+        try {
+          if (n instanceof GainNode && ctx) n.gain.setTargetAtTime(0, ctx.currentTime, fade / 3);
+          else if (n instanceof OscillatorNode || n instanceof AudioBufferSourceNode) n.stop(ctx ? ctx.currentTime + fade : 0);
+          else if (ctx) {
+            const nn = n;
+            window.setTimeout(() => {
+              try {
+                nn.disconnect();
+              } catch {
+                /* ignore */
+              }
+            }, fade * 1000);
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+      this.loopNodes.delete(name);
+    }
+    const tm = this.loopTimers.get(name);
+    if (tm !== undefined) {
+      window.clearTimeout(tm);
+      this.loopTimers.delete(name);
+    }
+  }
+
+  /** Air-raid alarm: real sample loop, synth wail fallback. */
+  airRaidLoop(on: boolean): void {
+    if (!this.ctx || !this.master) return;
+    this.stopLoop('air');
+    if (!on) return;
+    const src = this.playSample('alarm', 0.34, 1, true, 1.2);
+    if (src) {
+      this.loopNodes.set('air', [src]);
+      return;
+    }
+    try {
+      const ctx = this.ctx;
+      const o = ctx.createOscillator();
+      o.type = 'sine';
+      o.frequency.value = 620;
+      const lfo = ctx.createOscillator();
+      lfo.type = 'triangle';
+      lfo.frequency.value = 0.16;
+      const lg = ctx.createGain();
+      lg.gain.value = 190;
+      lfo.connect(lg).connect(o.frequency);
+      const f = ctx.createBiquadFilter();
+      f.type = 'lowpass';
+      f.frequency.value = 1400;
+      const g = ctx.createGain();
+      g.gain.value = 0;
+      g.gain.setTargetAtTime(0.14, ctx.currentTime, 1.0);
+      o.connect(f).connect(g).connect(this.master);
+      o.start();
+      lfo.start();
+      this.loopNodes.set('air', [o, lfo, lg, f, g]);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** Drizzle patter loop. */
+  rainLoop(on: boolean, vol = 0.06): void {
+    if (!this.ctx || !this.master) return;
+    this.stopLoop('rain');
+    if (!on) return;
+    try {
+      const ctx = this.ctx;
+      const noise = this.loopedNoise(3, 2500);
+      const hp = ctx.createBiquadFilter();
+      hp.type = 'highpass';
+      hp.frequency.value = 1400;
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 7500;
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = 0.7;
+      const lg = ctx.createGain();
+      lg.gain.value = 900;
+      lfo.connect(lg).connect(lp.frequency);
+      const g = ctx.createGain();
+      g.gain.value = 0;
+      g.gain.setTargetAtTime(vol, ctx.currentTime, 2.5);
+      noise.connect(hp).connect(lp).connect(g).connect(this.master);
+      lfo.start();
+      this.loopNodes.set('rain', [noise, hp, lp, lfo, lg, g]);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** Night wind loop. */
+  windLoop(on: boolean, vol = 0.09): void {
+    if (!this.ctx || !this.master) return;
+    this.stopLoop('wind');
+    if (!on) return;
+    try {
+      const ctx = this.ctx;
+      const noise = this.loopedNoise(4, 300);
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 380;
+      const g = ctx.createGain();
+      g.gain.value = vol;
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = 0.09;
+      const lg = ctx.createGain();
+      lg.gain.value = vol * 0.7;
+      lfo.connect(lg).connect(g.gain);
+      noise.connect(lp).connect(g).connect(this.master);
+      lfo.start();
+      this.loopNodes.set('wind', [noise, lp, lfo, lg, g]);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** Horror drone: detuned lows + faint shimmer. */
+  horrorPad(on: boolean): void {
+    if (!this.ctx || !this.master) return;
+    this.stopLoop('pad');
+    if (!on) return;
+    try {
+      const ctx = this.ctx;
+      const nodes: AudioNode[] = [];
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 240;
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = 0.05;
+      const lg = ctx.createGain();
+      lg.gain.value = 120;
+      lfo.connect(lg).connect(lp.frequency);
+      const g = ctx.createGain();
+      g.gain.value = 0;
+      g.gain.setTargetAtTime(0.3, ctx.currentTime, 2.0);
+      lp.connect(g).connect(this.master);
+      for (const f of [55, 55.6, 82.4, 110.3]) {
+        const o = ctx.createOscillator();
+        o.type = 'sawtooth';
+        o.frequency.value = f;
+        const og = ctx.createGain();
+        og.gain.value = 0.05;
+        o.connect(og).connect(lp);
+        o.start();
+        nodes.push(o, og);
+      }
+      const sh = ctx.createOscillator();
+      sh.type = 'sine';
+      sh.frequency.value = 1244;
+      const shg = ctx.createGain();
+      shg.gain.value = 0.006;
+      const tr = ctx.createOscillator();
+      tr.frequency.value = 0.3;
+      const trg = ctx.createGain();
+      trg.gain.value = 0.004;
+      tr.connect(trg).connect(shg.gain);
+      sh.connect(shg).connect(this.master);
+      sh.start();
+      tr.start();
+      lfo.start();
+      this.loopNodes.set('pad', [...nodes, lp, lfo, lg, g, sh, shg, tr, trg]);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** Lub-dub heartbeat loop. */
+  heartbeatLoop(on: boolean): void {
+    this.stopLoop('heart');
+    if (!on || !this.ctx) return;
+    const beat = (): void => {
+      if (!this.ctx || !this.loopTimers.has('heart')) return;
+      this.thump(0.4, 58);
+      window.setTimeout(() => this.thump(0.28, 52), 180);
+      this.loopTimers.set('heart', window.setTimeout(beat, 1050));
+    };
+    this.loopTimers.set('heart', window.setTimeout(beat, 100));
+  }
+
+  /** Deep rumble bed (real sample loop). */
+  rumbleLoop(on: boolean): void {
+    if (!this.ctx || !this.master) return;
+    this.stopLoop('rumble');
+    if (!on) return;
+    const src = this.playSample('rumble', 0.2, 0.9 + Math.random() * 0.2, true, 2.0, 500);
+    if (src) this.loopNodes.set('rumble', [src]);
+  }
+
+  /** Distant blast / thunder. */
+  thunderFar(vol = 0.5): void {
+    if (!this.ctx || !this.master || this.muted) return;
+    const src = this.playSample('blast_far', vol, 0.7 + Math.random() * 0.4, false, 0.08, 900);
+    if (!src) this.thump(vol * 0.7, 48);
+    else this.thump(vol * 0.4, 42);
+  }
+
+  /** Close crack. */
+  thunderCrack(vol = 0.6): void {
+    if (!this.ctx || !this.master || this.muted) return;
+    const src = this.playSample('blast_near', vol, 0.85 + Math.random() * 0.3, false, 0.01);
+    if (!src) this.blip(180, 0.18, vol * 0.5, 'square', 60);
+  }
+
+  /** Distant launch whoosh. */
+  launchDistant(): void {
+    if (!this.ctx || !this.master || this.muted) return;
+    const src = this.playSample('launch', 0.15, 0.8 + Math.random() * 0.3, false, 0.4, 1200);
+    if (!src) this.blip(90, 1.2, 0.05, 'sawtooth', 45);
+  }
+
+  /** Distant courtyard dog. */
+  dogBark(): void {
+    if (!this.ctx || !this.master || this.muted) return;
+    const n = 2 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < n; i++) {
+      window.setTimeout(() => {
+        const f = 260 + Math.random() * 120;
+        this.blip(f, 0.09, 0.045, 'square', f * 0.6);
+      }, i * (180 + Math.random() * 120));
+    }
+  }
+
+  /** Shahed-style putt-putt flyby with stereo pan. */
+  shahedFlyby(dur = 9): void {
+    if (!this.ctx || !this.master || this.muted) return;
+    try {
+      const ctx = this.ctx;
+      const t0 = ctx.currentTime;
+      const o1 = ctx.createOscillator();
+      o1.type = 'sawtooth';
+      o1.frequency.setValueAtTime(86, t0);
+      o1.frequency.linearRampToValueAtTime(70, t0 + dur);
+      const o2 = ctx.createOscillator();
+      o2.type = 'square';
+      o2.frequency.setValueAtTime(43, t0);
+      o2.frequency.linearRampToValueAtTime(35, t0 + dur);
+      const am = ctx.createOscillator();
+      am.frequency.value = 23;
+      const amg = ctx.createGain();
+      amg.gain.value = 0.5;
+      const eg = ctx.createGain();
+      eg.gain.value = 0.5;
+      am.connect(amg).connect(eg.gain);
+      const bp = ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.value = 320;
+      bp.Q.value = 0.8;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(0.22, t0 + dur * 0.35);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      o1.connect(eg);
+      o2.connect(eg);
+      eg.connect(bp).connect(g);
+      try {
+        const pan = ctx.createStereoPanner();
+        pan.pan.setValueAtTime(-0.9, t0);
+        pan.pan.linearRampToValueAtTime(0.9, t0 + dur);
+        g.connect(pan).connect(this.master);
+      } catch {
+        g.connect(this.master);
+      }
+      o1.start(t0);
+      o2.start(t0);
+      am.start(t0);
+      const stop = t0 + dur + 0.1;
+      o1.stop(stop);
+      o2.stop(stop);
+      am.stop(stop);
     } catch {
       /* ignore */
     }

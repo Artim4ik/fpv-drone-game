@@ -38,3 +38,11 @@ License: **MIT**
   tower block, city residential blocks
 - `facade3.jpg` (from `apartments5.png`, resized to 1024w, q62) — red-brick
   residential tower with balconies, city residential blocks
+
+## miko-2025/defensk (MIT) — https://github.com/miko-2025/defensk
+Game SFX (Pixabay-sourced, royalty-free), converted to mono WAV:
+- `sfx/alarm.wav` (from `audio/alarm.mp3`, 16kHz) — air-raid alarm loop
+- `sfx/blast_far.wav` (from `audio/distant-explosion-199372.mp3`, 16kHz) — distant blast / thunder
+- `sfx/blast_near.wav` (from `audio/explosion.wav`, 22050Hz) — close explosion crack
+- `sfx/launch.wav` (from `audio/missile-blast-2-95177.mp3`, 16kHz) — distant launch whoosh
+- `sfx/rumble.wav` (from `audio/quake.mp3`, 4s cut, 11025Hz) — looping deep rumble bed

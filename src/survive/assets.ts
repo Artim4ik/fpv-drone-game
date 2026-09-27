@@ -24,6 +24,11 @@ export const ASSET_URLS = {
   fire: new URL('./assets/fire.png', import.meta.url).href,
   lensdirt: new URL('./assets/lensdirt.jpg', import.meta.url).href,
   cannon: new URL('./assets/cannonBlast.mp3', import.meta.url).href,
+  alarm: new URL('./assets/sfx/alarm.wav', import.meta.url).href,
+  blast_far: new URL('./assets/sfx/blast_far.wav', import.meta.url).href,
+  blast_near: new URL('./assets/sfx/blast_near.wav', import.meta.url).href,
+  launch: new URL('./assets/sfx/launch.wav', import.meta.url).href,
+  rumble: new URL('./assets/sfx/rumble.wav', import.meta.url).href,
 } as const;
 
 export type AssetKey = keyof typeof ASSET_URLS;

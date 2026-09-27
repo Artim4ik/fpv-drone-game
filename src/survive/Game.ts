@@ -159,6 +159,12 @@ export class Game {
   private rideSub = 0;
   private objective: Objective = { title: '', detail: '' };
   private message: string | null = null;
+  private raidActive = false;
+  private nextRaidAt = 0;
+  private raidT0 = 0;
+  private raidFlags = new Set<string>();
+  private shahedSpr: THREE.Sprite | null = null;
+  private flashSpr: THREE.Sprite | null = null;
   private messageT = 0;
   private prompt: string | null = null;
   private hurtT = -99;
@@ -546,7 +552,123 @@ export class Game {
     }
   }
 
+  private startCityFx(): void {
+    this.audio.rainLoop(true, 0.05);
+    this.audio.windLoop(true, 0.07);
+    this.nextRaidAt = this.time + 65 + Math.random() * 40;
+    this.raidActive = false;
+    this.raidFlags.clear();
+    try {
+      if (!this.shahedSpr) {
+        this.shahedSpr = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: '#ff4444', transparent: true, opacity: 0, depthWrite: false, fog: false }));
+        this.shahedSpr.scale.set(3, 3, 1);
+        this.scene.add(this.shahedSpr);
+      }
+      if (!this.flashSpr) {
+        this.flashSpr = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: '#ffd9b0', transparent: true, opacity: 0, depthWrite: false, fog: false }));
+        this.flashSpr.scale.set(260, 120, 1);
+        this.flashSpr.position.set(-160, 40, -260);
+        this.scene.add(this.flashSpr);
+      }
+      this.shahedSpr.material.opacity = 0;
+      this.flashSpr.material.opacity = 0;
+    } catch {
+      /* ignore */
+    }
+  }
+
+  private stopCityFx(): void {
+    try {
+      this.audio.rainLoop(false);
+      this.audio.windLoop(false);
+      this.audio.airRaidLoop(false);
+      this.audio.horrorPad(false);
+      this.audio.heartbeatLoop(false);
+      this.audio.rumbleLoop(false);
+    } catch {
+      /* ignore */
+    }
+    this.raidActive = false;
+    if (this.shahedSpr) this.shahedSpr.material.opacity = 0;
+    if (this.flashSpr) this.flashSpr.material.opacity = 0;
+  }
+
+  private setBlackout(on: boolean): void {
+    try {
+      const bo = this.zone?.group.userData.blackout as ((b: boolean) => void) | undefined;
+      if (bo) bo(on);
+    } catch {
+      /* ignore */
+    }
+    this.sun.intensity = on ? 1.1 : 2.9;
+  }
+
+  private updateCityFx(dt: number): void {
+    if (this.chapter !== 'city') return;
+    const r = Math.random();
+    if (r < dt * 0.06) this.audio.dogBark();
+    else if (r < dt * 0.075) this.audio.thunderFar(0.25);
+    else if (r < dt * 0.083) this.audio.launchDistant();
+    if (!this.raidActive) {
+      if (this.time >= this.nextRaidAt) {
+        this.raidActive = true;
+        this.raidT0 = this.time;
+        this.raidFlags.clear();
+        this.showMessage('ПОВІТРЯНА ТРИВОГА — світло вимкнено! Тримайтесь дворів.', 18);
+        this.audio.airRaidLoop(true);
+        this.audio.horrorPad(true);
+        this.audio.rumbleLoop(true);
+        this.setBlackout(true);
+      }
+      return;
+    }
+    const e = this.time - this.raidT0;
+    const F = this.raidFlags;
+    if (e > 6 && !F.has('sh')) {
+      F.add('sh');
+      this.audio.shahedFlyby(11);
+    }
+    if (this.shahedSpr) {
+      if (e > 6 && e < 17.5) {
+        const k = (e - 6) / 11;
+        this.shahedSpr.position.set(-130 + k * 260, 58, -60);
+        this.shahedSpr.material.opacity = Math.sin(this.time * 18) > 0 ? 0.95 : 0.06;
+      } else this.shahedSpr.material.opacity = 0;
+    }
+    if (e > 9 && !F.has('hb')) {
+      F.add('hb');
+      this.audio.heartbeatLoop(true);
+    }
+    if (e > 17 && !F.has('fl')) {
+      F.add('fl');
+      if (this.flashSpr) this.flashSpr.material.opacity = 0.85;
+    }
+    if (e > 19.2 && !F.has('th')) {
+      F.add('th');
+      this.audio.thunderFar(0.8);
+      this.audio.thunderCrack(0.4);
+    }
+    if (e > 24 && !F.has('so')) {
+      F.add('so');
+      this.audio.airRaidLoop(false);
+      this.audio.heartbeatLoop(false);
+    }
+    if (this.flashSpr && this.flashSpr.material.opacity > 0) {
+      this.flashSpr.material.opacity = Math.max(0, this.flashSpr.material.opacity - dt * 0.5);
+    }
+    if (e > 30) {
+      this.raidActive = false;
+      this.nextRaidAt = this.time + 100 + Math.random() * 70;
+      this.audio.horrorPad(false);
+      this.audio.rumbleLoop(false);
+      this.setBlackout(false);
+      this.showMessage('Відбій тривоги.', 3);
+      if (this.shahedSpr) this.shahedSpr.material.opacity = 0;
+    }
+  }
+
   private loadChapter(ch: ChapterId): void {
+    this.stopCityFx();
     this.audio.sirenLoop(false);
     // minibus ride reuses the live city scene (van, officers, pedestrians)
     if (ch !== 'minibus') this.clearActors();
@@ -563,6 +685,7 @@ export class Game {
       this.sun.position.set(-70, 55, 35);
       this.hemi.intensity = 1.25;
       this.zone = this.world.load(this.scene, 'city');
+      this.startCityFx();
       this.pos.copy(this.zone.spawn);
       this.camYaw = this.zone.spawnYaw;
       this.buildPlayer('civilian');
@@ -1558,6 +1681,7 @@ export class Game {
     const dt = this.lastNow > 0 ? Math.min((nowMs - this.lastNow) / 1000, 0.05) : 0.016;
     this.lastNow = nowMs;
     this.time += dt;
+    this.updateCityFx(dt);
     if (!this.paused && !this.victory) this.update(dt);
     this.updateFx(dt);
     this.renderer.render(this.scene, this.camera);
