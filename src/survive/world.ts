@@ -3,7 +3,7 @@
 // All geometry is generated in code. Collision = XZ AABBs.
 // ============================================================
 import * as THREE from 'three';
-import { brickTexture, dirtTexture, facadeTexture, grassTexture, pavementTexture, plankTexture, plateUATexture, roadTexture, ruinTexture, scorchDecalTexture, signTexture, softDotTexture, uaFlagTexture } from './textures';
+import { brickTexture, carPaintTexture, dirtTexture, facadeTexture, glowTexture, grassTexture, pavementTexture, plankTexture, plateUATexture, roadTexture, ruinTexture, scorchDecalTexture, signTexture, softDotTexture, treadTexture, uaFlagTexture } from './textures';
 import { photoTexture } from './assets';
 import type { DocKind } from './types';
 
@@ -193,7 +193,7 @@ function buildCity(): ZoneData {
   const ROAD_W = 10;
 
   // ground base (Kyiv courtyards dirt)
-  const groundMat = new THREE.MeshStandardMaterial({ map: photoTexture('dirt', 20, 20, dirtTexture), roughness: 1 });
+  const groundMat = new THREE.MeshStandardMaterial({ map: photoTexture('dirt', 20, 20, dirtTexture), color: '#a9aeb8', roughness: 1 });
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(HALF * 2 + 60, HALF * 2 + 60), groundMat);
   ground.rotation.x = -Math.PI / 2;
   ground.position.y = -0.05;
@@ -238,9 +238,14 @@ function buildCity(): ZoneData {
     group.add(rx);
   }
 
-  // facades cache
-  const facades: THREE.CanvasTexture[] = [];
-  for (let i = 0; i < 6; i++) facades.push(facadeTexture(40 + i * 17, 5 + (i % 4), 5 + (i % 3)));
+  // facades cache: real panel-house photos mixed with procedural variety
+  const facades: THREE.Texture[] = [];
+  facades.push(photoTexture('facade1', 1, 1, () => facadeTexture(40, 9, 5)));
+  facades.push(facadeTexture(57, 6, 6));
+  facades.push(photoTexture('facade2', 1, 1, () => facadeTexture(74, 8, 4)));
+  facades.push(facadeTexture(91, 5, 7));
+  facades.push(photoTexture('facade3', 1, 1, () => facadeTexture(108, 9, 6)));
+  facades.push(facadeTexture(125, 7, 5));
   const roofMat = new THREE.MeshStandardMaterial({ color: '#3c3a34', roughness: 1 });
 
   const addCollider = (x: number, z: number, w: number, d: number): void => {
@@ -250,17 +255,19 @@ function buildCity(): ZoneData {
   // buildings per block
   let shopIdx = 0;
   const carColors = ['#5a6068', '#3a4a5c', '#6e2f28', '#2f4a3a', '#777264', '#22242a', '#7a6a4a'];
+  const carPaintTex = carPaintTexture();
+  const treadTex = treadTexture();
   const carMatCache = new Map<string, THREE.MeshStandardMaterial>();
   const carMat = (c: string): THREE.MeshStandardMaterial => {
     let m = carMatCache.get(c);
     if (!m) {
-      m = new THREE.MeshStandardMaterial({ color: c, roughness: 0.35, metalness: 0.5 });
+      m = new THREE.MeshStandardMaterial({ color: c, map: carPaintTex, roughness: 0.4, metalness: 0.4 });
       carMatCache.set(c, m);
     }
     return m;
   };
   const glassMat = new THREE.MeshStandardMaterial({ color: '#1c2228', roughness: 0.15, metalness: 0.7 });
-  const tireMat = new THREE.MeshStandardMaterial({ color: '#141414', roughness: 0.9 });
+  const tireMat = new THREE.MeshStandardMaterial({ color: '#ffffff', map: treadTex, roughness: 0.9 });
   const carPlates = [plateUATexture('АА 2210 КА'), plateUATexture('КА 7781 АА'), plateUATexture('АА 0456 КВ')];
 
   const buildCar = (burned: boolean): THREE.Group => {
@@ -333,7 +340,7 @@ function buildCity(): ZoneData {
         const tex = facades[(bi * 4 + bj + k) % facades.length].clone();
         tex.needsUpdate = true;
         tex.repeat.set(Math.max(1, Math.round(bw / 12)), Math.max(1, Math.round(bh / 14)));
-        const side = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9 });
+        const side = new THREE.MeshStandardMaterial({ map: tex, color: '#c3cbdc', roughness: 0.9 });
         const bld = new THREE.Mesh(geoBox, [side, side, roofMat, roofMat, side, side]);
         bld.scale.set(bw, bh, bd);
         bld.position.set(px, bh / 2, pz);
@@ -563,8 +570,20 @@ function buildCity(): ZoneData {
   // traffic cars (animated in update)
   const traffic: Array<{ g: THREE.Group; s: number; speed: number }> = [];
   const route = [new THREE.Vector3(-56, 0, -56), new THREE.Vector3(56, 0, -56), new THREE.Vector3(56, 0, 56), new THREE.Vector3(-56, 0, 56)];
+  const headGlowMat = new THREE.SpriteMaterial({ map: glowTexture(), color: '#ffe9a8', transparent: true, opacity: 0.75, depthWrite: false, blending: THREE.AdditiveBlending });
+  const tailGlowMat = new THREE.SpriteMaterial({ map: glowTexture(), color: '#ff3a2a', transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending });
   for (let i = 0; i < 3; i++) {
     const car = buildCar(false);
+    for (const s of [-1, 1]) {
+      const hg = new THREE.Sprite(headGlowMat);
+      hg.scale.set(0.9, 0.9, 1);
+      hg.position.set(s * 0.6, 0.7, 2.2);
+      car.add(hg);
+      const tg = new THREE.Sprite(tailGlowMat);
+      tg.scale.set(0.55, 0.55, 1);
+      tg.position.set(s * 0.6, 0.7, -2.15);
+      car.add(tg);
+    }
     group.add(car);
     traffic.push({ g: car, s: i / 3, speed: 0.014 + rnd() * 0.006 });
   }
@@ -698,7 +717,7 @@ function buildTraining(): ZoneData {
   group.add(ground);
 
   // parade dirt square
-  const dirtMat = new THREE.MeshStandardMaterial({ map: photoTexture('dirt', 6, 6, dirtTexture), roughness: 1 });
+  const dirtMat = new THREE.MeshStandardMaterial({ map: photoTexture('dirt', 6, 6, dirtTexture), color: '#b2b6ba', roughness: 1 });
   const square = new THREE.Mesh(new THREE.PlaneGeometry(70, 50), dirtMat);
   square.rotation.x = -Math.PI / 2;
   square.position.set(0, 0, 40);
@@ -903,7 +922,7 @@ function buildFrontline(): ZoneData {
   };
 
   // road along z
-  const roadMat = new THREE.MeshStandardMaterial({ map: photoTexture('dirt', 2, 40, dirtTexture), roughness: 1 });
+  const roadMat = new THREE.MeshStandardMaterial({ map: photoTexture('dirt', 2, 40, dirtTexture), color: '#a9a49a', roughness: 1 });
   const road = new THREE.Mesh(new THREE.PlaneGeometry(9, HALF * 2), roadMat);
   road.rotation.x = -Math.PI / 2;
   road.position.set(10, 0.15, 0);

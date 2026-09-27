@@ -465,3 +465,128 @@ export function glowTexture(): THREE.CanvasTexture {
   g.fillRect(0, 0, 128, 128);
   return toTexture(c);
 }
+
+/** Padded winter jacket with zipper + pockets (civilians). */
+export function jacketTexture(base: string, seed: number): THREE.CanvasTexture {
+  const [c, g] = canvas(128, 128);
+  const r = rand(seed * 17 + 3);
+  g.fillStyle = base;
+  g.fillRect(0, 0, 128, 128);
+  g.fillStyle = 'rgba(0,0,0,0.18)';
+  for (let y = 10; y < 128; y += 18) g.fillRect(0, y, 128, 2);
+  g.fillStyle = 'rgba(255,255,255,0.08)';
+  for (let y = 12; y < 128; y += 18) g.fillRect(0, y, 128, 2);
+  g.fillStyle = 'rgba(20,20,20,0.85)';
+  g.fillRect(62, 0, 4, 128);
+  g.fillStyle = 'rgba(180,180,180,0.8)';
+  for (let y = 4; y < 128; y += 8) g.fillRect(62, y, 4, 2);
+  g.fillStyle = 'rgba(0,0,0,0.25)';
+  g.fillRect(14, 84, 30, 4);
+  g.fillRect(84, 84, 30, 4);
+  for (let i = 0; i < 120; i++) {
+    g.fillStyle = `rgba(0,0,0,${r() * 0.08})`;
+    g.fillRect(r() * 128, r() * 128, 2, 2);
+  }
+  return toTexture(c);
+}
+
+/** Checkered flannel shirt (civilians). */
+export function flannelTexture(c1: string, c2: string): THREE.CanvasTexture {
+  const [c, g] = canvas(128, 128);
+  g.fillStyle = c1;
+  g.fillRect(0, 0, 128, 128);
+  g.fillStyle = c2;
+  g.globalAlpha = 0.55;
+  for (let x = 0; x < 128; x += 32) g.fillRect(x, 0, 14, 128);
+  for (let y = 0; y < 128; y += 32) g.fillRect(0, y, 128, 14);
+  g.globalAlpha = 1;
+  g.fillStyle = 'rgba(0,0,0,0.2)';
+  g.fillRect(62, 0, 3, 128);
+  return toTexture(c);
+}
+
+/** Tactical vest with MOLLE webbing + buckles (TCC / soldiers). */
+export function vestTexture(): THREE.CanvasTexture {
+  const [c, g] = canvas(128, 128);
+  g.fillStyle = '#4a4a34';
+  g.fillRect(0, 0, 128, 128);
+  for (let y = 12; y < 128; y += 24) {
+    g.fillStyle = 'rgba(0,0,0,0.3)';
+    g.fillRect(0, y, 128, 3);
+    g.fillStyle = '#56563e';
+    g.fillRect(0, y + 3, 128, 12);
+    g.fillStyle = 'rgba(0,0,0,0.35)';
+    for (let x = 8; x < 128; x += 20) g.fillRect(x, y + 3, 3, 12);
+  }
+  g.fillStyle = '#26261e';
+  g.fillRect(56, 46, 16, 10);
+  g.fillRect(56, 94, 16, 10);
+  return toTexture(c);
+}
+
+/** Low-poly face: eyes, brows, nose, mouth, facial-hair variants. */
+export function faceTexture(variant: number, skin: string): THREE.CanvasTexture {
+  const [c, g] = canvas(64, 80);
+  const r = rand(variant * 131 + 7);
+  g.fillStyle = skin;
+  g.fillRect(0, 0, 64, 80);
+  g.fillStyle = 'rgba(0,0,0,0.12)';
+  g.fillRect(0, 62, 64, 18);
+  const ey = 28 + Math.floor(r() * 5);
+  for (const ex of [15, 39]) {
+    g.fillStyle = '#e8e4da';
+    g.fillRect(ex, ey, 10, 7);
+    g.fillStyle = '#2a2a2e';
+    g.fillRect(ex + 3 + Math.floor(r() * 3), ey + 1, 4, 5);
+    g.fillStyle = 'rgba(40,30,20,0.9)';
+    g.fillRect(ex - 1, ey - 6, 12, 3);
+  }
+  g.fillStyle = 'rgba(0,0,0,0.15)';
+  g.fillRect(29, ey + 8, 5, 12);
+  g.fillStyle = 'rgba(120,62,56,0.9)';
+  g.fillRect(23, 60, 18, 3);
+  if (variant % 4 === 1) {
+    g.fillStyle = 'rgba(50,42,34,0.35)';
+    g.fillRect(8, 50, 48, 26);
+  } else if (variant % 4 === 2) {
+    g.fillStyle = '#3a2e22';
+    g.fillRect(8, 52, 48, 24);
+    g.fillStyle = skin;
+    g.fillRect(23, 58, 18, 7);
+  } else if (variant % 4 === 3) {
+    g.fillStyle = '#3a2e22';
+    g.fillRect(21, 55, 22, 4);
+  }
+  return toTexture(c);
+}
+
+/** Car paint: white base with dirt gradient at the bottom (multiplies body color). */
+export function carPaintTexture(): THREE.CanvasTexture {
+  const [c, g] = canvas(64, 64);
+  g.fillStyle = '#ffffff';
+  g.fillRect(0, 0, 64, 64);
+  const grad = g.createLinearGradient(0, 0, 0, 64);
+  grad.addColorStop(0, 'rgba(255,255,255,0)');
+  grad.addColorStop(0.55, 'rgba(70,64,55,0.12)');
+  grad.addColorStop(1, 'rgba(45,40,34,0.45)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 64, 64);
+  for (let i = 0; i < 90; i++) {
+    g.fillStyle = `rgba(40,36,30,${Math.random() * 0.25})`;
+    g.fillRect(Math.random() * 64, 40 + Math.random() * 24, 2, 2);
+  }
+  return toTexture(c);
+}
+
+/** Tire tread chevrons (wraps around the tire). */
+export function treadTexture(): THREE.CanvasTexture {
+  const [c, g] = canvas(64, 32);
+  g.fillStyle = '#161616';
+  g.fillRect(0, 0, 64, 32);
+  g.fillStyle = 'rgba(70,70,70,0.9)';
+  for (let x = 0; x < 64; x += 8) {
+    g.fillRect(x, 0, 3, 13);
+    g.fillRect(x + 4, 17, 3, 13);
+  }
+  return toTexture(c, 6, 1);
+}

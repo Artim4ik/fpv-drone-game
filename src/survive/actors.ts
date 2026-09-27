@@ -2,7 +2,7 @@
 // GREY CORRIDOR — procedural humanoids + NPC AI state machines
 // ============================================================
 import * as THREE from 'three';
-import { camoTexture } from './textures';
+import { camoTexture, faceTexture, flannelTexture, jacketTexture, vestTexture } from './textures';
 import { resolveCollision, losBlocked, type BoxCollider } from './world';
 import type { AnimState, ModelKind } from './types';
 
@@ -38,6 +38,40 @@ function getCamo(): THREE.Texture {
   camoShared ??= camoTexture();
   return camoShared;
 }
+const faceCache = new Map<string, THREE.Texture>();
+function getFace(seed: number, skinHex: string): THREE.Texture {
+  const key = `${seed % 8}:${skinHex}`;
+  let t = faceCache.get(key);
+  if (!t) {
+    t = faceTexture(seed % 8, skinHex);
+    faceCache.set(key, t);
+  }
+  return t;
+}
+const clothCache = new Map<string, THREE.Texture>();
+function getJacket(color: string, seed: number): THREE.Texture {
+  const key = `j:${color}:${seed % 4}`;
+  let t = clothCache.get(key);
+  if (!t) {
+    t = jacketTexture(color, seed % 4);
+    clothCache.set(key, t);
+  }
+  return t;
+}
+function getFlannel(c1: string, c2: string): THREE.Texture {
+  const key = `f:${c1}:${c2}`;
+  let t = clothCache.get(key);
+  if (!t) {
+    t = flannelTexture(c1, c2);
+    clothCache.set(key, t);
+  }
+  return t;
+}
+let vestShared: THREE.Texture | null = null;
+function getVest(): THREE.Texture {
+  vestShared ??= vestTexture();
+  return vestShared;
+}
 
 export function makeHumanoid(kind: ModelKind, seed = 1, armed = false): Humanoid {
   const g = new THREE.Group();
@@ -45,7 +79,8 @@ export function makeHumanoid(kind: ModelKind, seed = 1, armed = false): Humanoid
     const v = Math.sin(seed * 127.1 + n * 311.7) * 43758.5453;
     return v - Math.floor(v);
   };
-  const skin = new THREE.MeshStandardMaterial({ color: SKIN[Math.floor(r(1) * SKIN.length)], roughness: 0.8 });
+  const skinHex = SKIN[Math.floor(r(1) * SKIN.length)];
+  const skin = new THREE.MeshStandardMaterial({ color: skinHex, roughness: 0.8 });
   let top: THREE.Material;
   let bot: THREE.Material;
   let hat: THREE.Object3D | null = null;
@@ -53,13 +88,21 @@ export function makeHumanoid(kind: ModelKind, seed = 1, armed = false): Humanoid
     top = new THREE.MeshStandardMaterial({ color: '#ffffff', map: getCamo(), roughness: 0.95 });
     bot = new THREE.MeshStandardMaterial({ color: '#e8e8e0', map: getCamo(), roughness: 0.95 });
   } else if (kind === 'soldier') {
-    top = new THREE.MeshStandardMaterial({ color: '#4a5238', roughness: 0.95 });
-    bot = new THREE.MeshStandardMaterial({ color: '#3d4430', roughness: 0.95 });
+    top = new THREE.MeshStandardMaterial({ color: '#ffffff', map: getCamo(), roughness: 0.95 });
+    bot = new THREE.MeshStandardMaterial({ color: '#e2e2d8', map: getCamo(), roughness: 0.95 });
   } else if (kind === 'instructor') {
     top = new THREE.MeshStandardMaterial({ color: '#3a5c46', roughness: 0.9 });
     bot = new THREE.MeshStandardMaterial({ color: '#2c2c30', roughness: 0.9 });
   } else {
-    top = new THREE.MeshStandardMaterial({ color: CIVIL_TOP[Math.floor(r(2) * CIVIL_TOP.length)], roughness: 0.95 });
+    const cTop = CIVIL_TOP[Math.floor(r(2) * CIVIL_TOP.length)];
+    const cTop2 = CIVIL_TOP[Math.floor(r(7) * CIVIL_TOP.length)];
+    const roll = r(8);
+    top =
+      roll < 0.42
+        ? new THREE.MeshStandardMaterial({ map: getJacket(cTop, seed), roughness: 0.95 })
+        : roll < 0.72
+          ? new THREE.MeshStandardMaterial({ map: getFlannel(cTop, cTop2), roughness: 0.95 })
+          : new THREE.MeshStandardMaterial({ color: cTop, roughness: 0.95 });
     bot = new THREE.MeshStandardMaterial({ color: CIVIL_BOT[Math.floor(r(3) * CIVIL_BOT.length)], roughness: 0.95 });
   }
 
@@ -73,23 +116,49 @@ export function makeHumanoid(kind: ModelKind, seed = 1, armed = false): Humanoid
   torso.position.y = 1.2;
   torso.castShadow = true;
   g.add(torso);
-  // vest for officer/soldier
+  // vest + gear for officer/soldier (parented to torso: follows every pose)
+  const gearMat = new THREE.MeshStandardMaterial({ color: '#3a3d2c', roughness: 1 });
   if (kind === 'officer' || kind === 'soldier') {
-    const vest = new THREE.Mesh(
-      new THREE.BoxGeometry(0.54, 0.42, 0.34),
-      new THREE.MeshStandardMaterial({ color: kind === 'officer' ? '#3f4433' : '#33392a', roughness: 1 }),
-    );
-    vest.position.y = 1.22;
+    const vest = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.42, 0.34), new THREE.MeshStandardMaterial({ map: getVest(), roughness: 1 }));
+    vest.position.y = 0.02;
     vest.castShadow = true;
-    g.add(vest);
+    torso.add(vest);
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.3, 0.06), gearMat);
+    plate.position.set(0, 0.03, 0.18);
+    torso.add(plate);
+    for (const s of [-1, 1]) {
+      const strap = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.1, 0.36), gearMat);
+      strap.position.set(s * 0.17, 0.33, 0);
+      torso.add(strap);
+      const pouch = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.16, 0.08), gearMat);
+      pouch.position.set(s * 0.15, -0.12, 0.19);
+      torso.add(pouch);
+    }
+    const radioMat = new THREE.MeshStandardMaterial({ color: '#1e2124', roughness: 0.7 });
+    const radio = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.16, 0.05), radioMat);
+    radio.position.set(-0.2, 0.12, 0.19);
+    torso.add(radio);
+    const ant = new THREE.Mesh(new THREE.BoxGeometry(0.015, 0.3, 0.015), radioMat);
+    ant.position.set(-0.2, 0.32, 0.19);
+    torso.add(ant);
+    if (kind === 'soldier') {
+      const pack = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.44, 0.2), gearMat);
+      pack.position.set(0, 0.05, -0.24);
+      pack.castShadow = true;
+      torso.add(pack);
+      const bedroll = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.4, 8), new THREE.MeshStandardMaterial({ color: '#5c5c42', roughness: 1 }));
+      bedroll.rotation.z = Math.PI / 2;
+      bedroll.position.set(0, 0.3, -0.24);
+      torso.add(bedroll);
+    }
     if (kind === 'officer') {
       // TCC insignia band (yellow stripe)
       const band = new THREE.Mesh(
         new THREE.BoxGeometry(0.55, 0.07, 0.35),
         new THREE.MeshStandardMaterial({ color: '#c9a83a', roughness: 0.8 }),
       );
-      band.position.y = 1.38;
-      g.add(band);
+      band.position.y = 0.18;
+      torso.add(band);
     }
   }
   // arms
@@ -97,13 +166,36 @@ export function makeHumanoid(kind: ModelKind, seed = 1, armed = false): Humanoid
   armL.position.set(-0.33, 1.5, 0);
   const armR = limb(top, 0.14, 0.72);
   armR.position.set(0.33, 1.5, 0);
+  // boots + gloves + belt
+  const bootMat = new THREE.MeshStandardMaterial({ color: kind === 'civilian' ? '#2e2a26' : '#22211c', roughness: 0.9 });
+  for (const leg of [legL, legR]) {
+    const boot = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.16, 0.3), bootMat);
+    boot.position.set(0, -0.78, 0.05);
+    boot.castShadow = true;
+    leg.add(boot);
+  }
+  const gloveMat = new THREE.MeshStandardMaterial({ color: kind === 'civilian' ? skinHex : '#2c2c26', roughness: 0.9 });
+  for (const arm of [armL, armR]) {
+    const glove = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.16, 0.15), gloveMat);
+    glove.position.y = -0.68;
+    arm.add(glove);
+  }
+  const belt = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.08, 0.28), new THREE.MeshStandardMaterial({ color: '#1f1e1a', roughness: 0.9 }));
+  belt.position.y = 0.88;
+  g.add(belt);
   // head
   const headG = new THREE.Group();
   headG.position.y = 1.72;
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.3, 0.26), skin);
+  const faceMat = new THREE.MeshStandardMaterial({ map: getFace(seed, skinHex), roughness: 0.8 });
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.3, 0.26), [skin, skin, skin, skin, faceMat, skin]);
   head.position.y = 0.12;
   head.castShadow = true;
   headG.add(head);
+  for (const s of [-1, 1]) {
+    const ear = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.09, 0.07), skin);
+    ear.position.set(s * 0.15, 0.12, 0);
+    headG.add(ear);
+  }
   // hair / cap / helmet
   const hairMat = new THREE.MeshStandardMaterial({ color: ['#2b2118', '#4a3a26', '#6e5a3a', '#151515'][Math.floor(r(4) * 4)], roughness: 1 });
   if (kind === 'civilian') {
@@ -121,6 +213,11 @@ export function makeHumanoid(kind: ModelKind, seed = 1, armed = false): Humanoid
     const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.18, 0.1, 10), capMat);
     cap.position.y = 0.3;
     headG.add(cap);
+    if (kind === 'officer') {
+      const brim = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.03, 0.14), capMat);
+      brim.position.set(0, 0.27, 0.2);
+      headG.add(brim);
+    }
     hat = cap;
   } else {
     const helm = new THREE.Mesh(
@@ -129,6 +226,9 @@ export function makeHumanoid(kind: ModelKind, seed = 1, armed = false): Humanoid
     );
     helm.position.y = 0.26;
     headG.add(helm);
+    const strapH = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.05, 0.4), new THREE.MeshStandardMaterial({ color: '#22221e', roughness: 1 }));
+    strapH.position.y = 0.3;
+    headG.add(strapH);
     hat = helm;
   }
   void hat;

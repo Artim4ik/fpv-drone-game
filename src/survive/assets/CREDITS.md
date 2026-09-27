@@ -28,3 +28,13 @@ License: **MIT**
 facades, asphalt with markings, pavement, grass, shop signs, TCC van
 livery, Ukrainian plates, MM-14 camo, UA flag, muzzle flash, engine /
 siren / doors / gunfire / ambience — all synthesized at runtime.
+
+## Silent-Edge — https://github.com/MustafaBioS/Silent-Edge
+License: **MIT**
+
+- `facade1.jpg` (from `apartment_block6.png`, resized to 1024w, q62) — beige
+  panel tower with balconies, city residential blocks
+- `facade2.jpg` (from `apartments2.png`, resized to 1024w, q62) — dark brick
+  tower block, city residential blocks
+- `facade3.jpg` (from `building_5c.png`, resized to 1024w, q62) — red brick
+  apartment block, city residential blocks

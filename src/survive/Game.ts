@@ -223,6 +223,9 @@ export class Game {
   private skyMat!: THREE.ShaderMaterial;
   private beaconGlow!: THREE.Sprite;
   private fxT = 0;
+  private clouds: THREE.Sprite[] = [];
+  private dust!: THREE.Points;
+  private sunGlow!: THREE.Sprite;
   private fps = 60;
 
   private remotes = new Map<string, Remote>();
@@ -320,6 +323,43 @@ export class Game {
     sky.frustumCulled = false;
     sky.renderOrder = -10;
     this.scene.add(sky);
+    const crnd = (n: number): number => {
+      const v = Math.sin(n * 127.1) * 43758.5453;
+      return v - Math.floor(v);
+    };
+    // drifting clouds (billboards, ignore fog)
+    const cloudMat = new THREE.SpriteMaterial({ map: photoTexture('particle', 1, 1, softDotTexture), color: '#cfd6e4', transparent: true, opacity: 0.5, depthWrite: false, fog: false });
+    for (let i = 0; i < 9; i++) {
+      const s = new THREE.Sprite(cloudMat);
+      const a = (i / 9) * Math.PI * 2 + crnd(i) * 0.5;
+      const rad = 420 + crnd(i + 50) * 180;
+      s.position.set(Math.cos(a) * rad, 130 + crnd(i + 99) * 90, Math.sin(a) * rad);
+      const sc = 130 + crnd(i + 7) * 130;
+      s.scale.set(sc, sc * 0.42, 1);
+      this.scene.add(s);
+      this.clouds.push(s);
+    }
+    // floating dust motes
+    const dustGeo = new THREE.BufferGeometry();
+    const dustPos = new Float32Array(240 * 3);
+    for (let i = 0; i < 240; i++) {
+      dustPos[i * 3] = (crnd(i * 3) - 0.5) * 220;
+      dustPos[i * 3 + 1] = 0.5 + crnd(i * 3 + 1) * 40;
+      dustPos[i * 3 + 2] = (crnd(i * 3 + 2) - 0.5) * 220;
+    }
+    dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPos, 3));
+    this.dust = new THREE.Points(
+      dustGeo,
+      new THREE.PointsMaterial({ size: 0.45, map: photoTexture('disc', 1, 1, softDotTexture), color: '#ffeecc', transparent: true, opacity: 0.4, depthWrite: false }),
+    );
+    this.dust.frustumCulled = false;
+    this.scene.add(this.dust);
+    // sun glow billboard (repositioned every frame from the sun)
+    this.sunGlow = new THREE.Sprite(
+      new THREE.SpriteMaterial({ map: glowTexture(), color: '#ffcf90', transparent: true, opacity: 0.85, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }),
+    );
+    this.sunGlow.scale.set(150, 150, 1);
+    this.scene.add(this.sunGlow);
   }
 
   private setSky(top: string, mid: string, bot: string): void {
@@ -417,6 +457,11 @@ export class Game {
     } else {
       bg.visible = false;
     }
+    if (this.dust) this.dust.rotation.y += dt * 0.004;
+    if (this.sunGlow) {
+      this.sunGlow.position.copy(this.sun.position).normalize().multiplyScalar(700);
+      this.sunGlow.position.y = Math.max(40, this.sunGlow.position.y);
+    }
     this.fxT += dt;
     if (this.fxT > 0.05 && Math.abs(v.speed) > 0.5 && (this.chapter === 'city' || this.chapter === 'minibus')) {
       this.fxT = 0;
@@ -451,7 +496,7 @@ export class Game {
     this.spawnParticles(p.x, p.y + 1, p.z, big ? 20 : 8, '#2a2a26', 3, big ? 2.2 : 1.2, 4);
     const light = new THREE.PointLight('#ff9a4a', big ? 120 : 40, big ? 40 : 20, 1.8);
     light.position.copy(p).add(new THREE.Vector3(0, 2, 0));
-    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: photoTexture('particle', 1, 1, softDotTexture), color: '#ffcf8a', transparent: true, opacity: 1, depthWrite: false }));
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: photoTexture('fire', 1, 1, softDotTexture), color: '#ffe0b0', transparent: true, opacity: 1, depthWrite: false }));
     sprite.position.copy(light.position);
     sprite.scale.set(big ? 8 : 4, big ? 8 : 4, 1);
     this.scene.add(light, sprite);

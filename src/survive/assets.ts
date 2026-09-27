@@ -18,6 +18,10 @@ export const ASSET_URLS = {
   disc: new URL('./assets/disc.png', import.meta.url).href,
   circle: new URL('./assets/circle.png', import.meta.url).href,
   sprite: new URL('./assets/sprite.png', import.meta.url).href,
+  facade1: new URL('./assets/facade1.jpg', import.meta.url).href,
+  facade2: new URL('./assets/facade2.jpg', import.meta.url).href,
+  facade3: new URL('./assets/facade3.jpg', import.meta.url).href,
+  fire: new URL('./assets/fire.png', import.meta.url).href,
   lensdirt: new URL('./assets/lensdirt.jpg', import.meta.url).href,
   cannon: new URL('./assets/cannonBlast.mp3', import.meta.url).href,
 } as const;

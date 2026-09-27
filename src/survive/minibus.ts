@@ -3,6 +3,7 @@
 // Fictional inspection vehicle. Patrol -> notice -> stop -> doors.
 // ============================================================
 import * as THREE from 'three';
+import { carPaintTexture, treadTexture } from './textures';
 import { resolveCollision, type BoxCollider } from './world';
 
 export type VanState = 'patrol' | 'stakeout' | 'notice' | 'slow' | 'stop' | 'doors' | 'check' | 'dismount' | 'chase' | 'transport' | 'leave';
@@ -31,10 +32,10 @@ function buildMinibusMesh(): VanRig {
   const body = new THREE.Group();
   group.add(body);
 
-  const paint = new THREE.MeshStandardMaterial({ color: '#e8e9e6', roughness: 0.32, metalness: 0.12 });
+  const paint = new THREE.MeshStandardMaterial({ color: '#e8e9e6', map: carPaintTexture(), roughness: 0.32, metalness: 0.12 });
   const trimMat = new THREE.MeshStandardMaterial({ color: '#26282c', roughness: 0.7 });
   const glassMat = new THREE.MeshStandardMaterial({ color: '#2a3a44', roughness: 0.08, metalness: 0.65, transparent: true, opacity: 0.75 });
-  const tireMat = new THREE.MeshStandardMaterial({ color: '#131313', roughness: 0.95 });
+  const tireMat = new THREE.MeshStandardMaterial({ color: '#ffffff', map: treadTexture(), roughness: 0.95 });
   const hubMat = new THREE.MeshStandardMaterial({ color: '#8c8c88', roughness: 0.4, metalness: 0.7 });
 
   // hollow shell: floor pan + side walls + roof + hood + rear (real cabin inside)
