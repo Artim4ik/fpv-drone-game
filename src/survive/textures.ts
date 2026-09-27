@@ -151,7 +151,7 @@ export function roadTexture(): THREE.CanvasTexture {
   g.fillStyle = '#b9b49a';
   g.fillRect(124, 20, 8, 90);
   g.fillRect(124, 150, 8, 90);
-  return toTexture(c, 1, 6);
+  return toTexture(c, 1, 30);
 }
 
 export function pavementTexture(): THREE.CanvasTexture {
@@ -418,20 +418,34 @@ export function uaFlagTexture(): THREE.CanvasTexture {
 
 /** Ukrainian vehicle plate with blue UA band. */
 export function plateUATexture(text: string): THREE.CanvasTexture {
-  const [c, g] = canvas(128, 32);
+  const [c, g] = canvas(256, 64);
   g.fillStyle = '#f2f2ee';
-  g.fillRect(0, 0, 128, 32);
+  g.fillRect(0, 0, 256, 64);
+  g.strokeStyle = '#1a1a1a';
+  g.lineWidth = 3;
+  g.strokeRect(2, 2, 252, 60);
+  // UA band: blue over yellow with white UA
   g.fillStyle = '#27438c';
-  g.fillRect(0, 0, 20, 32);
+  g.fillRect(4, 4, 32, 56);
   g.fillStyle = '#ffd83a';
-  g.fillRect(2, 22, 16, 4);
+  g.fillRect(4, 34, 32, 26);
   g.fillStyle = '#f2f2ee';
-  g.font = 'bold 11px Arial';
+  g.font = 'bold 17px Arial';
   g.textAlign = 'center';
-  g.fillText('UA', 10, 15);
+  g.fillText('UA', 20, 27);
+  // plate text fitted into the remaining width
   g.fillStyle = '#1a1a1a';
-  g.font = 'bold 20px Arial';
-  g.fillText(text, 74, 24);
+  let fs = 40;
+  g.font = `bold ${fs}px Arial`;
+  try {
+    while (fs > 12 && (g.measureText(text).width as number) > 200) {
+      fs -= 2;
+      g.font = `bold ${fs}px Arial`;
+    }
+  } catch {
+    /* measure unavailable (stub) */
+  }
+  g.fillText(text, 146, 47);
   return toTexture(c);
 }
 
@@ -526,54 +540,64 @@ export function vestTexture(): THREE.CanvasTexture {
 
 /** Low-poly face: eyes, brows, nose, mouth, facial-hair variants. */
 export function faceTexture(variant: number, skin: string): THREE.CanvasTexture {
-  const [c, g] = canvas(64, 80);
+  const [c, g] = canvas(96, 112);
   const r = rand(variant * 131 + 7);
   g.fillStyle = skin;
-  g.fillRect(0, 0, 64, 80);
+  g.fillRect(0, 0, 96, 112);
   g.fillStyle = 'rgba(0,0,0,0.12)';
-  g.fillRect(0, 62, 64, 18);
-  const ey = 28 + Math.floor(r() * 5);
-  for (const ex of [15, 39]) {
+  g.fillRect(0, 93, 96, 19);
+  const ey = 42 + Math.floor(r() * 7);
+  for (const ex of [22, 58]) {
     g.fillStyle = '#e8e4da';
-    g.fillRect(ex, ey, 10, 7);
+    g.fillRect(ex, ey, 14, 9);
     g.fillStyle = '#2a2a2e';
-    g.fillRect(ex + 3 + Math.floor(r() * 3), ey + 1, 4, 5);
+    g.fillRect(ex + 4 + Math.floor(r() * 4), ey + 1, 6, 7);
     g.fillStyle = 'rgba(40,30,20,0.9)';
-    g.fillRect(ex - 1, ey - 6, 12, 3);
+    g.fillRect(ex - 2, ey - 9, 18, 4);
   }
   g.fillStyle = 'rgba(0,0,0,0.15)';
-  g.fillRect(29, ey + 8, 5, 12);
+  g.fillRect(44, ey + 12, 7, 17);
   g.fillStyle = 'rgba(120,62,56,0.9)';
-  g.fillRect(23, 60, 18, 3);
+  g.fillRect(35, 90, 26, 4);
   if (variant % 4 === 1) {
     g.fillStyle = 'rgba(50,42,34,0.35)';
-    g.fillRect(8, 50, 48, 26);
+    g.fillRect(12, 75, 72, 33);
   } else if (variant % 4 === 2) {
     g.fillStyle = '#3a2e22';
-    g.fillRect(8, 52, 48, 24);
+    g.fillRect(12, 78, 72, 30);
     g.fillStyle = skin;
-    g.fillRect(23, 58, 18, 7);
+    g.fillRect(35, 87, 26, 9);
   } else if (variant % 4 === 3) {
     g.fillStyle = '#3a2e22';
-    g.fillRect(21, 55, 22, 4);
+    g.fillRect(32, 82, 32, 5);
   }
   return toTexture(c);
 }
 
 /** Car paint: white base with dirt gradient at the bottom (multiplies body color). */
 export function carPaintTexture(): THREE.CanvasTexture {
-  const [c, g] = canvas(64, 64);
+  const [c, g] = canvas(128, 128);
   g.fillStyle = '#ffffff';
-  g.fillRect(0, 0, 64, 64);
-  const grad = g.createLinearGradient(0, 0, 0, 64);
+  g.fillRect(0, 0, 128, 128);
+  const grad = g.createLinearGradient(0, 0, 0, 128);
   grad.addColorStop(0, 'rgba(255,255,255,0)');
-  grad.addColorStop(0.55, 'rgba(70,64,55,0.12)');
-  grad.addColorStop(1, 'rgba(45,40,34,0.45)');
+  grad.addColorStop(0.45, 'rgba(70,64,55,0.08)');
+  grad.addColorStop(0.78, 'rgba(52,47,40,0.3)');
+  grad.addColorStop(1, 'rgba(38,34,28,0.52)');
   g.fillStyle = grad;
-  g.fillRect(0, 0, 64, 64);
-  for (let i = 0; i < 90; i++) {
-    g.fillStyle = `rgba(40,36,30,${Math.random() * 0.25})`;
-    g.fillRect(Math.random() * 64, 40 + Math.random() * 24, 2, 2);
+  g.fillRect(0, 0, 128, 128);
+  // rain streaks running down
+  for (let i = 0; i < 16; i++) {
+    const x = Math.random() * 128;
+    const y0 = 30 + Math.random() * 60;
+    g.fillStyle = `rgba(60,55,48,${0.05 + Math.random() * 0.08})`;
+    g.fillRect(x, y0, 2 + Math.random() * 3, 128 - y0);
+  }
+  // road grime speckle, denser at the very bottom
+  for (let i = 0; i < 220; i++) {
+    const y = 64 + Math.pow(Math.random(), 0.6) * 64;
+    g.fillStyle = `rgba(40,36,30,${0.08 + Math.random() * 0.25})`;
+    g.fillRect(Math.random() * 128, y, 1 + Math.random() * 2, 1 + Math.random() * 2);
   }
   return toTexture(c);
 }

@@ -29,6 +29,9 @@ export const ASSET_URLS = {
   blast_near: new URL('./assets/sfx/blast_near.wav', import.meta.url).href,
   launch: new URL('./assets/sfx/launch.wav', import.meta.url).href,
   rumble: new URL('./assets/sfx/rumble.wav', import.meta.url).href,
+  launch2: new URL('./assets/sfx/launch2.wav', import.meta.url).href,
+  blast_alt: new URL('./assets/sfx/blast_alt.wav', import.meta.url).href,
+  deepboom: new URL('./assets/sfx/deepboom.wav', import.meta.url).href,
 } as const;
 
 export type AssetKey = keyof typeof ASSET_URLS;

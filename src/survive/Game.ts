@@ -604,6 +604,12 @@ export class Game {
   }
 
   private updateCityFx(dt: number): void {
+    if (this.chapter === 'frontline') {
+      const fr = Math.random();
+      if (fr < dt * 0.05) this.audio.missileLaunch();
+      else if (fr < dt * 0.09) this.audio.thunderFar(0.4);
+      return;
+    }
     if (this.chapter !== 'city') return;
     const r = Math.random();
     if (r < dt * 0.06) this.audio.dogBark();
@@ -645,7 +651,7 @@ export class Game {
     }
     if (e > 19.2 && !F.has('th')) {
       F.add('th');
-      this.audio.thunderFar(0.8);
+      this.audio.deepBoom();
       this.audio.thunderCrack(0.4);
     }
     if (e > 24 && !F.has('so')) {

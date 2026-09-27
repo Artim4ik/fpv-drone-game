@@ -329,14 +329,29 @@ function buildCity(): ZoneData {
       const cz = (az + bz) / 2;
       const w = bx - ax;
       const d = bz - az;
-      // 1-2 buildings per block
-      const nB = 1 + Math.floor(rnd() * 2);
+      // 1-2 buildings per block, each confined to its own half (never overlap)
+      const nB = bi === 0 && bj === 3 ? 1 : 1 + Math.floor(rnd() * 2);
+      const vertical = (bi + bj) % 2 === 0;
+      const IN = 4;
       for (let k = 0; k < nB; k++) {
-        const bw = 9 + rnd() * Math.min(13, w * 0.42);
-        const bd = 8 + rnd() * Math.min(10, d * 0.38);
+        const maxW = nB === 2 && vertical ? w / 2 - IN - 2.5 : w - 2 * IN;
+        const maxD = nB === 2 && !vertical ? d / 2 - IN - 2.5 : d - 2 * IN;
+        const bw = Math.min(9 + rnd() * 11, Math.max(10, maxW));
+        const bd = Math.min(8 + rnd() * 9, Math.max(9, maxD));
         const bh = 12 + rnd() * 18;
-        const px = cx + (k === 0 ? -w * 0.16 : w * 0.17) + (rnd() - 0.5) * 4;
-        const pz = cz + (rnd() - 0.5) * d * 0.3;
+        let px: number;
+        let pz: number;
+        if (nB === 1) {
+          px = ax + IN + bw / 2 + rnd() * Math.max(0, w - 2 * IN - bw);
+          pz = az + IN + bd / 2 + rnd() * Math.max(0, d - 2 * IN - bd);
+        } else if (vertical) {
+          px = k === 0 ? ax + IN + bw / 2 + rnd() * Math.max(0, cx - 1.5 - (ax + IN) - bw) : cx + 1.5 + bw / 2 + rnd() * Math.max(0, bx - IN - (cx + 1.5) - bw);
+          pz = az + IN + bd / 2 + rnd() * Math.max(0, d - 2 * IN - bd);
+        } else {
+          pz = k === 0 ? az + IN + bd / 2 + rnd() * Math.max(0, cz - 1.5 - (az + IN) - bd) : cz + 1.5 + bd / 2 + rnd() * Math.max(0, bz - IN - (cz + 1.5) - bd);
+          px = ax + IN + bw / 2 + rnd() * Math.max(0, w - 2 * IN - bw);
+        }
+        if (bi === 0 && bj === 3) pz = Math.max(pz, 79);
         const tex = facades[(bi * 4 + bj + k) % facades.length].clone();
         tex.needsUpdate = true;
         tex.repeat.set(Math.max(1, Math.round(bw / 12)), Math.max(1, Math.round(bh / 14)));
@@ -370,30 +385,42 @@ function buildCity(): ZoneData {
       // courtyard props
       const nDump = 1 + Math.floor(rnd() * 2);
       for (let k = 0; k < nDump; k++) {
-        const px = cx + (rnd() - 0.5) * w * 0.6;
-        const pz = cz + (rnd() - 0.5) * d * 0.6;
-        const dump = box(dumpMat, 2.2, 1.3, 1.2, px, 0.65, pz, rnd() * 0.6);
+        const dp = new THREE.Vector3(cx + (rnd() - 0.5) * w * 0.6, 0, cz + (rnd() - 0.5) * d * 0.6);
+        nudgeOut(dp, colliders, 2);
+        const px = dp.x;
+        const pz = dp.z;
+        const dump = box(dumpMat, 2.2, 1.3, 1.2, px, 0.65, pz, (rnd() - 0.5) * 0.3);
         group.add(dump);
         addCollider(px, pz, 2.2, 1.4);
       }
       for (let k = 0; k < 3; k++) {
-        const px = cx + (rnd() - 0.5) * w * 0.7;
-        const pz = cz + (rnd() - 0.5) * d * 0.7;
+        const cp = new THREE.Vector3(cx + (rnd() - 0.5) * w * 0.7, 0, cz + (rnd() - 0.5) * d * 0.7);
+        nudgeOut(cp, colliders, 1.2);
+        const px = cp.x;
+        const pz = cp.z;
         const s = 0.8 + rnd() * 0.8;
         group.add(box(crateMat, s, s, s, px, s / 2, pz, rnd() * 1.2));
       }
       if (rnd() < 0.55) {
-        const bx = cx + (rnd() - 0.5) * w * 0.4;
-        const bz = cz + (rnd() - 0.5) * d * 0.4;
+        const bp = new THREE.Vector3(cx + (rnd() - 0.5) * w * 0.4, 0, cz + (rnd() - 0.5) * d * 0.4);
+        nudgeOut(bp, colliders, 1.6);
+        const bx = bp.x;
+        const bz = bp.z;
         group.add(box(crateMat, 1.8, 0.1, 0.5, bx, 0.5, bz));
         group.add(box(crateMat, 1.8, 0.5, 0.1, bx, 0.85, bz - 0.25));
         addCollider(bx, bz, 1.8, 0.6);
       }
-      if (rnd() < 0.7) buildTree(cx + (rnd() - 0.5) * w * 0.5, cz + (rnd() - 0.5) * d * 0.5, 0.9 + rnd() * 0.7);
+      if (rnd() < 0.7) {
+        const tp = new THREE.Vector3(cx + (rnd() - 0.5) * w * 0.5, 0, cz + (rnd() - 0.5) * d * 0.5);
+        nudgeOut(tp, colliders, 1.2);
+        buildTree(tp.x, tp.z, 0.9 + rnd() * 0.7);
+      }
       // parked car in courtyard
       if (rnd() < 0.6) {
-        const px = cx + (rnd() - 0.5) * w * 0.55;
-        const pz = cz + (rnd() - 0.5) * d * 0.55;
+        const vp = new THREE.Vector3(cx + (rnd() - 0.5) * w * 0.55, 0, cz + (rnd() - 0.5) * d * 0.55);
+        nudgeOut(vp, colliders, 2.6);
+        const px = vp.x;
+        const pz = vp.z;
         const car = buildCar(false);
         car.position.set(px, 0, pz);
         car.rotation.y = rnd() * Math.PI;
@@ -404,23 +431,25 @@ function buildCity(): ZoneData {
       if (bi === 0 && bj === 3) {
         for (let k = 0; k < 4; k++) {
           const px = ax + 6 + k * 7;
-          const pz = az + 8;
+          const pz = az + 6;
           const gar = box(garageMat, 6, 2.6, 5, px, 1.3, pz);
           group.add(gar);
           addCollider(px, pz, 6, 5);
         }
         const wreck = buildCar(true);
-        wreck.position.set(cx + 8, 0, cz + 6);
+        const wp = new THREE.Vector3(cx + 8, 0, cz + 6);
+        nudgeOut(wp, colliders, 2.6);
+        wreck.position.set(wp.x, 0, wp.z);
         wreck.rotation.y = 0.7;
         group.add(wreck);
-        addCollider(cx + 8, cz + 6, 3.4, 3.4);
+        addCollider(wp.x, wp.z, 3.4, 3.4);
         const scorch = new THREE.Mesh(
           new THREE.PlaneGeometry(6, 6),
           new THREE.MeshStandardMaterial({ map: photoTexture('scorch', 1, 1, scorchDecalTexture), roughness: 1, transparent: true, opacity: 0.85, depthWrite: false }),
         );
         scorch.rotation.x = -Math.PI / 2;
         scorch.rotation.z = 0.7;
-        scorch.position.set(cx + 8, 0.04, cz + 6);
+        scorch.position.set(wp.x, 0.04, wp.z);
         scorch.receiveShadow = true;
         group.add(scorch);
       }
@@ -438,11 +467,10 @@ function buildCity(): ZoneData {
   // market row: stalls with canopies (nudged out of buildings)
   {
     const stallWood = new THREE.MeshStandardMaterial({ map: photoTexture('wood', 1, 1, plankTexture), roughness: 1 });
-    const stallCloth = new THREE.MeshStandardMaterial({ color: '#7a3a3a', roughness: 0.9 });
-    const stallCloth2 = new THREE.MeshStandardMaterial({ color: '#3a5c7a', roughness: 0.9 });
+    const stallCloth = new THREE.MeshStandardMaterial({ map: awningTexture('#a8352c'), roughness: 0.85, side: THREE.DoubleSide });
+    const stallCloth2 = new THREE.MeshStandardMaterial({ map: awningTexture('#2c5f8a'), roughness: 0.85, side: THREE.DoubleSide });
     for (let sxi = 0; sxi < 4; sxi++) {
-      const sp = new THREE.Vector3(8, 0, -38 + sxi * 6);
-      nudgeOut(sp, colliders, 2.2);
+      const sp = new THREE.Vector3(7, 0, -38 + sxi * 6);
       group.add(box(stallWood, 2.6, 0.9, 1.4, sp.x, 0.45, sp.z));
       const legs: Array<[number, number]> = [[-1.2, -0.6], [1.2, -0.6], [-1.2, 0.6], [1.2, 0.6]];
       for (const [ox, oz] of legs) {
@@ -475,6 +503,7 @@ function buildCity(): ZoneData {
         const head = box(lampHeadMat, 0.7, 0.25, 0.4, horiz ? x : x - 2, 6.8, horiz ? z + 2 : z);
         head.castShadow = false;
         group.add(head);
+        addCollider(x, z, 0.4, 0.4);
         wirePts.push(new THREE.Vector3(x, 6.9, z));
       }
     }
@@ -544,9 +573,9 @@ function buildCity(): ZoneData {
   const back = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 1.8), stopGlass);
   back.position.set(0, 1.4, -0.7);
   shelter.add(back);
-  shelter.position.set(8.5, 0, -24);
+  shelter.position.set(6.5, 0, -24);
   group.add(shelter);
-  addCollider(8.5, -24, 4.6, 1.8);
+  addCollider(6.5, -24, 4.6, 1.8);
   // prefabricated kiosks (Kyiv classic) near the bus stop
   const kioskGlass = new THREE.MeshStandardMaterial({ color: '#20262c', roughness: 0.2, metalness: 0.5 });
   const kioskRoof = new THREE.MeshStandardMaterial({ color: '#6e2742', roughness: 0.8 });
@@ -568,7 +597,7 @@ function buildCity(): ZoneData {
     addCollider(kp.x, kp.z, 3.4, 2.8);
   }
   const stopPlate = new THREE.Mesh(new THREE.PlaneGeometry(2.0, 0.5), new THREE.MeshBasicMaterial({ map: signTexture('ЗУПИНКА', '#27556e') }));
-  stopPlate.position.set(6.05, 2.2, -24);
+  stopPlate.position.set(4.05, 2.2, -24);
   stopPlate.rotation.y = -Math.PI / 2;
   group.add(stopPlate);
 
@@ -687,84 +716,27 @@ function buildCity(): ZoneData {
   let kioskLight: THREE.PointLight;
   let kioskGlow: THREE.Sprite;
   {
-    const [kx, kz] = nudgeFree(11, 47, 2.6);
+    const [kx, kz] = nudgeFree(15.5, -24, 2.6);
     const kBody = new THREE.MeshStandardMaterial({ color: '#3f5a44', roughness: 0.85 });
     group.add(box(kBody, 3, 2.6, 2.5, kx, 1.3, kz));
     group.add(box(new THREE.MeshStandardMaterial({ color: '#2c2c2c', roughness: 0.9 }), 3.4, 0.15, 2.9, kx, 2.7, kz));
     const win = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 0.9), kioskWinMat);
-    win.position.set(kx, 1.6, kz - 1.26);
-    win.rotation.y = Math.PI;
+    win.position.set(kx, 1.6, kz + 1.26);
     group.add(win);
     const sign = new THREE.Mesh(
       new THREE.PlaneGeometry(2.6, 0.62),
       new THREE.MeshBasicMaterial({ map: signTextTexture('ПРОДУКТИ', '#7a1f1f') }),
     );
-    sign.position.set(kx, 2.35, kz - 1.27);
-    sign.rotation.y = Math.PI;
+    sign.position.set(kx, 2.35, kz + 1.27);
     group.add(sign);
     kioskLight = new THREE.PointLight('#ffca7a', 8, 15, 1.8);
-    kioskLight.position.set(kx, 2.4, kz - 2.2);
+    kioskLight.position.set(kx, 2.4, kz + 2.2);
     group.add(kioskLight);
     kioskGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: '#ffca7a', transparent: true, opacity: 0.5, depthWrite: false, blending: THREE.AdditiveBlending }));
     kioskGlow.scale.set(4, 3, 1);
-    kioskGlow.position.set(kx, 1.8, kz - 1.6);
+    kioskGlow.position.set(kx, 1.8, kz + 1.6);
     group.add(kioskGlow);
     addCollider(kx, kz, 3.2, 2.7);
-  }
-
-  // bus stop
-  {
-    const [bx, bz] = nudgeFree(-8.5, 58, 2.6);
-    const poleMat = new THREE.MeshStandardMaterial({ color: '#3a4048', roughness: 0.7, metalness: 0.4 });
-    group.add(box(poleMat, 0.14, 2.6, 0.14, bx - 1.8, 1.3, bz));
-    group.add(box(poleMat, 0.14, 2.6, 0.14, bx + 1.8, 1.3, bz));
-    group.add(box(new THREE.MeshStandardMaterial({ color: '#2f6db3', roughness: 0.6 }), 4.2, 0.12, 1.7, bx, 2.65, bz));
-    group.add(box(new THREE.MeshStandardMaterial({ color: '#6b5136', roughness: 0.9 }), 3.4, 0.1, 0.45, bx, 0.55, bz + 0.3));
-    const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 0.5), new THREE.MeshBasicMaterial({ map: signTextTexture('ЗУПИНКА', '#1f3f7a'), side: THREE.DoubleSide }));
-    sign.position.set(bx, 2.3, bz - 0.8);
-    group.add(sign);
-    addCollider(bx, bz, 4, 1.6);
-  }
-
-  // market stalls with striped awnings
-  let stallGlow: THREE.Sprite;
-  {
-    const awn = new THREE.MeshStandardMaterial({ map: awningTexture('#a8352c'), roughness: 0.85, side: THREE.DoubleSide });
-    const awn2 = new THREE.MeshStandardMaterial({ map: awningTexture('#2c5f8a'), roughness: 0.85, side: THREE.DoubleSide });
-    const top = new THREE.MeshStandardMaterial({ color: '#7a6248', roughness: 0.9 });
-    const appleM = new THREE.MeshStandardMaterial({ color: '#c44a2e', roughness: 0.6 });
-    const stallDefs: Array<[number, number, THREE.Material, string]> = [[17, 63, awn, 'ОВОЧІ'], [21.5, 63, awn2, 'ФРУКТИ']];
-    stallDefs.forEach(([sx, sz, am, label], si) => {
-      const [px, pz] = nudgeFree(sx, sz, 2.2);
-      group.add(box(top, 2.4, 0.12, 1.4, px, 0.85, pz));
-      for (const [lx, lz] of [[-1, -0.5], [1, -0.5], [-1, 0.5], [1, 0.5]]) group.add(box(top, 0.09, 0.85, 0.09, px + lx, 0.42, pz + lz));
-      const roof = new THREE.Mesh(new THREE.PlaneGeometry(2.9, 1.9), am);
-      roof.position.set(px, 2.25, pz);
-      roof.rotation.x = -Math.PI / 2 + 0.28;
-      group.add(roof);
-      group.add(box(top, 0.08, 2.2, 0.08, px - 1.35, 1.1, pz + 0.7));
-      group.add(box(top, 0.08, 2.2, 0.08, px + 1.35, 1.1, pz + 0.7));
-      for (let ci = 0; ci < 3; ci++) {
-        group.add(box(crateMat, 0.55, 0.3, 0.4, px - 0.7 + ci * 0.7, 1.06, pz - 0.2));
-        if (si === 1) {
-          for (let ai = 0; ai < 4; ai++) {
-            const ap = new THREE.Mesh(geoSphere, appleM);
-            ap.scale.setScalar(0.09);
-            ap.position.set(px - 0.82 + ci * 0.7 + (ai % 2) * 0.18, 1.26, pz - 0.26 + Math.floor(ai / 2) * 0.16);
-            group.add(ap);
-          }
-        }
-      }
-      const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 0.36), new THREE.MeshBasicMaterial({ map: signTextTexture(label, '#33302a'), side: THREE.DoubleSide }));
-      sign.position.set(px, 1.95, pz + 0.75);
-      group.add(sign);
-      addCollider(px, pz, 2.6, 1.6);
-    });
-    const [gx, gz] = nudgeFree(19, 60, 1);
-    stallGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: '#ffd9a0', transparent: true, opacity: 0.35, depthWrite: false, blending: THREE.AdditiveBlending }));
-    stallGlow.scale.set(7, 4, 1);
-    stallGlow.position.set(gx, 1.6, gz);
-    group.add(stallGlow);
   }
 
   // playground with animated swings
@@ -866,6 +838,50 @@ function buildCity(): ZoneData {
       cloths.push(cl);
     }
     addCollider(lx, lz, 6.4, 0.5);
+  }
+
+  // transformer substation booth
+  {
+    const [tx, tz] = nudgeFree(40, -40, 2.4);
+    const tBody = new THREE.MeshStandardMaterial({ color: '#5c6258', roughness: 0.85 });
+    group.add(box(tBody, 3.4, 2.4, 2.2, tx, 1.2, tz));
+    group.add(box(new THREE.MeshStandardMaterial({ color: '#3c3a34', roughness: 1 }), 3.7, 0.15, 2.5, tx, 2.5, tz));
+    group.add(box(new THREE.MeshStandardMaterial({ color: '#2f4a3a', roughness: 0.8 }), 0.9, 1.8, 0.1, tx - 0.7, 0.9, tz + 1.12));
+    const warn = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 0.32), new THREE.MeshBasicMaterial({ map: signTextTexture('НЕ ВЛІЗАЙ', '#8a7a1a', '#1a1a1a') }));
+    warn.position.set(tx + 0.6, 1.7, tz + 1.13);
+    group.add(warn);
+    addCollider(tx, tz, 3.6, 2.4);
+  }
+
+  // sandbox
+  {
+    const [sx, sz] = nudgeFree(30, 70, 3);
+    const edgeM = new THREE.MeshStandardMaterial({ color: '#7a6248', roughness: 0.9 });
+    group.add(box(edgeM, 4.2, 0.3, 0.25, sx, 0.15, sz - 2));
+    group.add(box(edgeM, 4.2, 0.3, 0.25, sx, 0.15, sz + 2));
+    group.add(box(edgeM, 0.25, 0.3, 4.2, sx - 2, 0.15, sz));
+    group.add(box(edgeM, 0.25, 0.3, 4.2, sx + 2, 0.15, sz));
+    const sand = new THREE.Mesh(new THREE.PlaneGeometry(4, 4), new THREE.MeshStandardMaterial({ color: '#c2a878', roughness: 1 }));
+    sand.rotation.x = -Math.PI / 2;
+    sand.position.set(sx, 0.06, sz);
+    group.add(sand);
+    addCollider(sx, sz, 4.2, 4.2);
+  }
+
+  // football pitch with goals
+  {
+    const [fx, fz] = nudgeFree(-28, -28, 11);
+    const pitch = new THREE.Mesh(new THREE.PlaneGeometry(20, 12), new THREE.MeshStandardMaterial({ color: '#4a5c38', roughness: 1 }));
+    pitch.rotation.x = -Math.PI / 2;
+    pitch.position.set(fx, 0.04, fz);
+    group.add(pitch);
+    const goalM = new THREE.MeshStandardMaterial({ color: '#d8d8d8', roughness: 0.6 });
+    for (const gx of [-9, 9]) {
+      group.add(box(goalM, 0.12, 2.2, 0.12, fx + gx, 1.1, fz - 1.6));
+      group.add(box(goalM, 0.12, 2.2, 0.12, fx + gx, 1.1, fz + 1.6));
+      group.add(box(goalM, 0.12, 0.12, 3.3, fx + gx, 2.2, fz));
+      addCollider(fx + gx, fz, 0.4, 3.4);
+    }
   }
 
   // trash bins
@@ -1081,7 +1097,6 @@ function buildCity(): ZoneData {
     kioskLight.visible = !on;
     kioskWinMat.emissiveIntensity = on ? 0.05 : 1.8;
     kioskGlow.visible = !on;
-    stallGlow.visible = !on;
   };
 
   const hotspots = [

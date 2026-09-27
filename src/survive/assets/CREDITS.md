@@ -46,3 +46,6 @@ Game SFX (Pixabay-sourced, royalty-free), converted to mono WAV:
 - `sfx/blast_near.wav` (from `audio/explosion.wav`, 22050Hz) — close explosion crack
 - `sfx/launch.wav` (from `audio/missile-blast-2-95177.mp3`, 16kHz) — distant launch whoosh
 - `sfx/rumble.wav` (from `audio/quake.mp3`, 4s cut, 11025Hz) — looping deep rumble bed
+- `sfx/launch2.wav` (from `audio/heavy-missile-launch-213841.mp3`, 16kHz) — distant missile launch
+- `sfx/blast_alt.wav` (from `audio/distant-explosion-edited.wav`, 22050Hz) — blast variant
+- `sfx/deepboom.wav` (from `audio/nuke-333673.mp3`, 3s cut, 11025Hz) — deep detonation boom

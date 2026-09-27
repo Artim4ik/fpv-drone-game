@@ -403,7 +403,7 @@ export class AudioEngine {
 
 
   // ---------------- sample-based SFX (GitHub) ----------------
-  private ensureSample(key: 'alarm' | 'blast_far' | 'blast_near' | 'launch' | 'rumble'): void {
+  private ensureSample(key: 'alarm' | 'blast_far' | 'blast_near' | 'launch' | 'rumble' | 'launch2' | 'blast_alt' | 'deepboom'): void {
     if (!this.ctx || this.sfxBufs.has(key) || this.sfxLoading.has(key)) return;
     this.sfxLoading.add(key);
     import('./assets')
@@ -428,7 +428,7 @@ export class AudioEngine {
 
   /** Play a cached sample; triggers async load on first use. Null when not ready. */
   private playSample(
-    key: 'alarm' | 'blast_far' | 'blast_near' | 'launch' | 'rumble',
+    key: 'alarm' | 'blast_far' | 'blast_near' | 'launch' | 'rumble' | 'launch2' | 'blast_alt' | 'deepboom',
     vol: number,
     rate = 1,
     loop = false,
@@ -662,7 +662,8 @@ export class AudioEngine {
   /** Distant blast / thunder. */
   thunderFar(vol = 0.5): void {
     if (!this.ctx || !this.master || this.muted) return;
-    const src = this.playSample('blast_far', vol, 0.7 + Math.random() * 0.4, false, 0.08, 900);
+    const key = Math.random() < 0.5 ? 'blast_far' : 'blast_alt';
+    const src = this.playSample(key, vol, key === 'blast_far' ? 0.7 + Math.random() * 0.4 : 0.6 + Math.random() * 0.5, false, 0.08, 900);
     if (!src) this.thump(vol * 0.7, 48);
     else this.thump(vol * 0.4, 42);
   }
@@ -670,7 +671,8 @@ export class AudioEngine {
   /** Close crack. */
   thunderCrack(vol = 0.6): void {
     if (!this.ctx || !this.master || this.muted) return;
-    const src = this.playSample('blast_near', vol, 0.85 + Math.random() * 0.3, false, 0.01);
+    const ckey = Math.random() < 0.6 ? 'blast_near' : 'blast_alt';
+    const src = this.playSample(ckey, vol, 0.85 + Math.random() * 0.3, false, 0.01);
     if (!src) this.blip(180, 0.18, vol * 0.5, 'square', 60);
   }
 
@@ -679,6 +681,21 @@ export class AudioEngine {
     if (!this.ctx || !this.master || this.muted) return;
     const src = this.playSample('launch', 0.15, 0.8 + Math.random() * 0.3, false, 0.4, 1200);
     if (!src) this.blip(90, 1.2, 0.05, 'sawtooth', 45);
+  }
+
+  /** Distant missile launch (frontline). */
+  missileLaunch(): void {
+    if (!this.ctx || !this.master || this.muted) return;
+    const src = this.playSample('launch2', 0.2, 0.85 + Math.random() * 0.3, false, 0.3, 1500);
+    if (!src) this.blip(70, 1.6, 0.06, 'sawtooth', 40);
+  }
+
+  /** Deep detonation boom (blackout flash). */
+  deepBoom(): void {
+    if (!this.ctx || !this.master || this.muted) return;
+    const src = this.playSample('deepboom', 0.7, 0.9 + Math.random() * 0.2, false, 0.02, 700);
+    if (!src) this.thump(0.6, 45);
+    else this.thump(0.35, 40);
   }
 
   /** Distant courtyard dog. */
