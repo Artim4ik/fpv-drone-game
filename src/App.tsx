@@ -1,9 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import DroneScene, { type HitEventKind, type Telemetry } from "./game/DroneScene";
+import DroneScene, {
+  type ControlScheme,
+  type HitEventKind,
+  type Telemetry,
+} from "./game/DroneScene";
 
 type GameMode = "briefing" | "running" | "paused" | "ended";
 type MissionResult = "success" | "failed" | null;
 type FeedItem = { id: number; message: string; kind: HitEventKind };
+
+const SCHEME_STORAGE_KEY = "blackkite-scheme";
+
+function loadScheme(): ControlScheme {
+  try {
+    return window.localStorage.getItem(SCHEME_STORAGE_KEY) === "rollAD" ? "rollAD" : "yawAD";
+  } catch {
+    return "yawAD";
+  }
+}
 
 const INITIAL_TARGETS = 7;
 const MISSION_SECONDS = 180;
@@ -58,12 +72,25 @@ function App() {
   const [telemetry, setTelemetry] = useState<Telemetry>(initialTelemetry);
   const [muted, setMuted] = useState(false);
   const [feed, setFeed] = useState<FeedItem[]>([]);
+  const [controlScheme, setControlScheme] = useState<ControlScheme>(loadScheme);
   const modeRef = useRef<GameMode>(mode);
   const menuButtonPressedRef = useRef(false);
   const feedIdRef = useRef(0);
 
   const isActive = mode === "running";
   modeRef.current = mode;
+
+  const toggleScheme = () => {
+    setControlScheme((previous) => {
+      const next: ControlScheme = previous === "yawAD" ? "rollAD" : "yawAD";
+      try {
+        window.localStorage.setItem(SCHEME_STORAGE_KEY, next);
+      } catch {
+        // Storage is optional.
+      }
+      return next;
+    });
+  };
 
   const launchMission = useCallback(() => {
     setRound((value) => value + 1);
@@ -168,6 +195,7 @@ function App() {
         key={round}
         active={isActive}
         muted={muted}
+        controlScheme={controlScheme}
         onTargetDestroyed={handleTargetDestroyed}
         onTelemetry={setTelemetry}
         onEvent={handleEvent}
@@ -193,6 +221,9 @@ function App() {
             </div>
 
             <div className="hud__actions">
+              <button type="button" onClick={toggleScheme} aria-label="Схема управления">
+                {controlScheme === "yawAD" ? "A/D: РЫСК" : "A/D: КРЕН"}
+              </button>
               <button type="button" onClick={() => setMuted((value) => !value)} aria-label="Звук">
                 {muted ? "SND OFF" : "SND ON"}
               </button>
@@ -291,11 +322,16 @@ function App() {
           <div className="briefing__controls">
             <div><strong>ЛЕВЫЙ СТИК</strong><span>Тяга / рыскание</span></div>
             <div><strong>ПРАВЫЙ СТИК</strong><span>Крен / тангаж</span></div>
-            <div><strong>A</strong><span>Перегрузка моторов</span></div>
+            <div><strong>SPACE / A</strong><span>Форсаж</span></div>
+            <div><strong>X</strong><span>Стабилизация (удерживать)</span></div>
           </div>
           <p className="briefing__fallback">
-            Клавиатура: W/S — тангаж, A/D — рыскание, стрелки — крен,
-            Shift/Ctrl — рычаг тяги, E — форсаж, ESC — пауза
+            Клавиатура: W/S — тангаж,{" "}
+            {controlScheme === "yawAD"
+              ? "A/D (или Q/E) — рыскание, ←/→ — крен"
+              : "A/D (или ←/→) — крен, Q/E — рыскание"}
+            , Shift/Ctrl — тяга, Space — форсаж, X — стабилизация, ESC — пауза. Схема A/D
+            переключается в HUD.
           </p>
         </section>
       )}

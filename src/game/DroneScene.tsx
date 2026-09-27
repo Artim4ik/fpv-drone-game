@@ -29,10 +29,13 @@ export type Telemetry = {
 };
 
 export type HitEventKind = "kill" | "hit" | "warn" | "info";
+/** Keyboard layout: "yawAD" — A/D рулят, "rollAD" — A/D кренят (Q/E руль). */
+export type ControlScheme = "yawAD" | "rollAD";
 
 type DroneSceneProps = {
   active: boolean;
   muted: boolean;
+  controlScheme: ControlScheme;
   onTargetDestroyed: (points: number) => void;
   onTelemetry: (telemetry: Telemetry) => void;
   onEvent?: (message: string, kind: HitEventKind, points?: number) => void;
@@ -96,9 +99,18 @@ function seededRandom(seed: number) {
   return value - Math.floor(value);
 }
 
-function deadzone(value: number, threshold = 0.12) {
-  if (Math.abs(value) < threshold) return 0;
-  return (value - Math.sign(value) * threshold) / (1 - threshold);
+/** Progressive keyboard deflection: taps give partial rate, holds give full. */
+function rampAxis(current: number, target: number, dt: number) {
+  const rate = target === 0 ? 11 : 8;
+  return current + (target - current) * (1 - Math.exp(-dt * rate));
+}
+
+/** Radial deadzone that keeps stick direction intact (no axis distortion). */
+function radialStick(x: number, y: number, dead: number) {
+  const magnitude = Math.hypot(x, y);
+  if (magnitude < dead) return { x: 0, y: 0 };
+  const scale = Math.min(1, (magnitude - dead) / (1 - dead)) / magnitude;
+  return { x: x * scale, y: y * scale };
 }
 
 function createSky(scene: THREE.Scene) {
@@ -364,6 +376,7 @@ function addWorldDetails(scene: THREE.Scene) {
 export default function DroneScene({
   active,
   muted,
+  controlScheme,
   onTargetDestroyed,
   onTelemetry,
   onEvent,
@@ -371,6 +384,7 @@ export default function DroneScene({
   const mountRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef(active);
   const mutedRef = useRef(muted);
+  const controlSchemeRef = useRef(controlScheme);
   const audioRef = useRef<AudioEngine | null>(null);
   const callbacksRef = useRef({ onTargetDestroyed, onTelemetry, onEvent });
 
@@ -382,6 +396,10 @@ export default function DroneScene({
     mutedRef.current = muted;
     audioRef.current?.setMuted(muted);
   }, [muted]);
+
+  useEffect(() => {
+    controlSchemeRef.current = controlScheme;
+  }, [controlScheme]);
 
   useEffect(() => {
     callbacksRef.current = { onTargetDestroyed, onTelemetry, onEvent };
@@ -519,6 +537,10 @@ export default function DroneScene({
     let boost = false;
     let previousLocked = false;
     let keyboardThrottle = HOVER_LEVER;
+    // Progressive keyboard deflections (partial rates on short taps).
+    let keyPitch = 0;
+    let keyRoll = 0;
+    let keyYaw = 0;
     let shake = 0;
     let animationFrame = 0;
     let elapsed = 0;
@@ -568,6 +590,26 @@ export default function DroneScene({
       if (toSource.lengthSq() < 1e-6) return 0;
       toSource.normalize();
       return THREE.MathUtils.clamp(cameraRight.dot(toSource) * 0.85, -1, 1);
+    };
+
+    /** Controller rumble for impacts and explosions (when a gamepad is on). */
+    const rumble = (power: number, duration: number) => {
+      try {
+        const pads = navigator.getGamepads?.() ?? [];
+        for (const pad of pads) {
+          const actuator = pad?.vibrationActuator;
+          if (!actuator || typeof actuator.playEffect !== "function") continue;
+          void actuator
+            .playEffect("dual-rumble", {
+              duration,
+              weakMagnitude: Math.min(1, power * 0.7),
+              strongMagnitude: Math.min(1, power),
+            })
+            .catch(() => undefined);
+        }
+      } catch {
+        // Rumble is optional.
+      }
     };
 
     const spawnPuff = (
@@ -702,7 +744,9 @@ export default function DroneScene({
       scene.add(core, ring, smoke, light);
       explosions.push({ core, ring, smoke, light, age: 0, power });
       spawnDebris(position, power);
-      audio.explosion(camera.position.distanceTo(position), panFor(position));
+      const distance = camera.position.distanceTo(position);
+      audio.explosion(distance, panFor(position));
+      if (distance < 32) rumble(Math.min(0.85, 1 - distance / 38), 320);
     };
 
     const scheduleBlast = (position: THREE.Vector3, power: number, delay: number) => {
@@ -800,6 +844,7 @@ export default function DroneScene({
         splashTracks(state.position);
       }
       audio.staticBurst();
+      rumble(1, 600);
       shake = 1;
       emit("БОРТ УНИЧТОЖЕН — ПЕРЕЗАПУСК В ВОЗДУХЕ", "info");
     };
@@ -1015,26 +1060,58 @@ export default function DroneScene({
       }
     };
 
+    /** Pack sag: less battery → slightly weaker motors. */
+    const batteryThrustScale = () => {
+      const pct = THREE.MathUtils.clamp(100 - elapsed * 0.21 - (boost ? 3 : 0), 0, 100);
+      return 0.9 + 0.1 * (pct / 100);
+    };
+
     const readControls = (delta: number) => {
       const gamepads = navigator.getGamepads?.() ?? [];
       const gamepad = Array.from(gamepads).find((pad) => pad?.connected) ?? null;
-      let yawInput = (keys.has("KeyD") ? 1 : 0) - (keys.has("KeyA") ? 1 : 0);
-      let rollInput = (keys.has("ArrowRight") ? 1 : 0) - (keys.has("ArrowLeft") ? 1 : 0);
-      let pitchInput = (keys.has("KeyW") || keys.has("ArrowUp") ? 1 : 0) - (keys.has("KeyS") || keys.has("ArrowDown") ? 1 : 0);
-      boost = keys.has("KeyE");
+      const scheme = controlSchemeRef.current;
+
+      // Keyboard targets by scheme. W/S always pitches, arrows always work.
+      const pitchTarget =
+        (keys.has("KeyW") || keys.has("ArrowUp") ? 1 : 0) -
+        (keys.has("KeyS") || keys.has("ArrowDown") ? 1 : 0);
+      const arrowsRoll =
+        (keys.has("ArrowRight") ? 1 : 0) - (keys.has("ArrowLeft") ? 1 : 0);
+      const rollTarget =
+        scheme === "rollAD"
+          ? (keys.has("KeyD") ? 1 : 0) - (keys.has("KeyA") ? 1 : 0) + arrowsRoll
+          : arrowsRoll;
+      const yawTarget =
+        scheme === "rollAD"
+          ? (keys.has("KeyE") ? 1 : 0) - (keys.has("KeyQ") ? 1 : 0)
+          : (keys.has("KeyD") || keys.has("KeyE") ? 1 : 0) -
+            (keys.has("KeyA") || keys.has("KeyQ") ? 1 : 0);
+
+      keyPitch = rampAxis(keyPitch, pitchTarget, delta);
+      keyRoll = rampAxis(keyRoll, THREE.MathUtils.clamp(rollTarget, -1, 1), delta);
+      keyYaw = rampAxis(keyYaw, THREE.MathUtils.clamp(yawTarget, -1, 1), delta);
+
+      boost = keys.has("Space");
+      const assist = keys.has("KeyX");
 
       const keyboardUp = keys.has("ShiftLeft") || keys.has("ShiftRight");
       const keyboardDown = keys.has("ControlLeft") || keys.has("ControlRight");
       // The keyboard throttle is a lever that slews, like a real mode-2 stick.
-      if (keyboardUp) keyboardThrottle = Math.min(1, keyboardThrottle + 0.75 * delta);
-      if (keyboardDown) keyboardThrottle = Math.max(0, keyboardThrottle - 0.75 * delta);
+      if (keyboardUp) keyboardThrottle = Math.min(1, keyboardThrottle + 0.65 * delta);
+      if (keyboardDown) keyboardThrottle = Math.max(0, keyboardThrottle - 0.65 * delta);
+      let yaw = keyYaw;
+      let roll = keyRoll;
+      let pitch = keyPitch;
       let throttle = keyboardThrottle;
 
       if (gamepad) {
-        yawInput += deadzone(gamepad.axes[0] ?? 0);
-        rollInput += deadzone(gamepad.axes[2] ?? 0);
-        pitchInput += -deadzone(gamepad.axes[3] ?? 0);
-        throttle = (1 - deadzone(gamepad.axes[1] ?? 0, 0.08)) / 2;
+        // Radial deadzones keep diagonal input honest on both sticks.
+        const left = radialStick(gamepad.axes[0] ?? 0, gamepad.axes[1] ?? 0, 0.08);
+        const right = radialStick(gamepad.axes[2] ?? 0, gamepad.axes[3] ?? 0, 0.1);
+        yaw = THREE.MathUtils.clamp(yaw + left.x, -1, 1);
+        roll = THREE.MathUtils.clamp(roll + right.x, -1, 1);
+        pitch = THREE.MathUtils.clamp(pitch - right.y, -1, 1);
+        throttle = (1 - left.y) / 2;
         boost ||= Boolean(gamepad.buttons[0]?.pressed);
         if (keyboardUp) throttle = Math.min(1, throttle + 0.2);
         if (keyboardDown) throttle = Math.max(0, throttle - 0.2);
@@ -1042,11 +1119,12 @@ export default function DroneScene({
 
       return {
         controls: {
-          yaw: THREE.MathUtils.clamp(yawInput, -1, 1),
-          roll: THREE.MathUtils.clamp(rollInput, -1, 1),
-          pitch: THREE.MathUtils.clamp(pitchInput, -1, 1),
+          yaw,
+          roll,
+          pitch,
           throttle,
           boost,
+          assist,
         } satisfies FpvControls,
         gamepad: Boolean(gamepad),
       };
@@ -1106,7 +1184,7 @@ export default function DroneScene({
           // The ruined airframe tumbles down while the feed is dead.
           stepFpv(
             state,
-            { pitch: 0, roll: 0, yaw: 0, throttle: 0, boost: false },
+            { pitch: 0, roll: 0, yaw: 0, throttle: 0, boost: false, assist: false },
             delta,
             terrainHeight(state.position.x, state.position.z),
             elapsed,
@@ -1119,7 +1197,14 @@ export default function DroneScene({
           if (respawnTimer <= 0) respawnDrone();
         } else {
           const ground = terrainHeight(state.position.x, state.position.z);
-          const result = stepFpv(state, controls, delta, ground, elapsed);
+          const result = stepFpv(
+            state,
+            controls,
+            delta,
+            ground,
+            elapsed,
+            batteryThrustScale(),
+          );
           state.position.x = THREE.MathUtils.clamp(state.position.x, -122, 122);
           state.position.z = THREE.MathUtils.clamp(state.position.z, -218, 88);
 
@@ -1157,10 +1242,11 @@ export default function DroneScene({
         const ground = terrainHeight(state.position.x, state.position.z);
         stepFpv(
           state,
-          { pitch: 0, roll: 0, yaw: 0, throttle: HOVER_LEVER, boost: false },
+          { pitch: 0, roll: 0, yaw: 0, throttle: HOVER_LEVER, boost: false, assist: false },
           delta,
           ground,
           elapsed,
+          batteryThrustScale(),
         );
         state.position.x = THREE.MathUtils.clamp(state.position.x, -122, 122);
         state.position.z = THREE.MathUtils.clamp(state.position.z, -218, 88);
@@ -1212,6 +1298,13 @@ export default function DroneScene({
       if (telemetryElapsed > 0.1) {
         updateTelemetry(gamepad);
         telemetryElapsed = 0;
+      }
+
+      // Speed sensation: the lens opens up as the drone accelerates.
+      const speedFov = 79 + THREE.MathUtils.clamp((state.velocity.length() - 9) * 0.33, 0, 15);
+      if (Math.abs(camera.fov - speedFov) > 0.02) {
+        camera.fov += (speedFov - camera.fov) * (1 - Math.exp(-delta * 3));
+        camera.updateProjectionMatrix();
       }
       composer.render();
     };
