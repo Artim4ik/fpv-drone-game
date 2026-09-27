@@ -249,6 +249,7 @@ export class Civilian {
   pos: THREE.Vector3;
   state: CivilState = 'walk';
   loop: THREE.Vector3[];
+  post: THREE.Vector3 | null = null;
   loopIdx = 0;
   dir = 1;
   speed = 1.4;
@@ -257,13 +258,23 @@ export class Civilian {
   yaw = 0;
   private seed: number;
 
-  constructor(loop: THREE.Vector3[], seed: number, scene: THREE.Object3D) {
+  constructor(loop: THREE.Vector3[], seed: number, scene: THREE.Object3D, post: THREE.Vector3 | null = null) {
     this.seed = seed;
     this.loop = loop;
+    this.post = post;
     this.loopIdx = Math.floor(Math.abs(Math.sin(seed * 3.7)) * loop.length);
     this.dir = seed % 2 === 0 ? 1 : -1;
     this.pos = loop[this.loopIdx].clone();
+    if (post) this.pos.copy(post);
     this.humanoid = makeHumanoid('civilian', seed, false);
+    if (seed % 3 === 0) {
+      const bag = new THREE.Mesh(
+        new THREE.BoxGeometry(0.34, 0.42, 0.2),
+        new THREE.MeshStandardMaterial({ color: '#6e5a3a', roughness: 1 }),
+      );
+      bag.position.set(-0.45, 0.75, 0.1);
+      this.humanoid.group.add(bag);
+    }
     this.humanoid.group.position.copy(this.pos);
     scene.add(this.humanoid.group);
   }
@@ -283,7 +294,7 @@ export class Civilian {
         }
         break;
       case 'walk': {
-        const target = this.loop[this.loopIdx];
+        const target = this.post ?? this.loop[this.loopIdx];
         const before = Math.hypot(target.x - this.pos.x, target.z - this.pos.z);
         const remain = steerToward(this.pos, target, this.speed, dt, colliders);
         if (before - remain < this.speed * dt * 0.25) this.stallT += dt;
@@ -291,7 +302,12 @@ export class Civilian {
         moving = 0.6;
         this.yaw = Math.atan2(target.x - this.pos.x, target.z - this.pos.z);
         hd.setPose('walk', t + this.seed, moving);
-        if (remain < 0.6 || this.stallT > 2.5) {
+        if (this.post) {
+          if (remain < 0.4) {
+            this.state = 'idle';
+            this.stateT = -4 - (this.seed % 5);
+          }
+        } else if (remain < 0.6 || this.stallT > 2.5) {
           this.stallT = 0;
           this.loopIdx = (this.loopIdx + this.dir + this.loop.length) % this.loop.length;
           if (this.seed % 5 === 0 && Math.random() < 0.2) {
@@ -561,4 +577,110 @@ export function makeNameTag(text: string): THREE.Sprite {
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
   sp.scale.set(2.2, 0.48, 1);
   return sp;
+}
+
+// ============================================================ foot patrol (inspection pair)
+export interface FootPatrolEvents {
+  onAlarm: (pos: THREE.Vector3) => void;
+  onSpotted: () => void;
+  onRadio: () => void;
+}
+
+export class FootPatrol {
+  guards: Humanoid[] = [];
+  waypoints: THREE.Vector3[];
+  wpIdx = 0;
+  checking: Civilian | null = null;
+  checkT = 0;
+  alarmCd = 0;
+  spotCd = 0;
+  checkCd = 4;
+  events: FootPatrolEvents = { onAlarm: () => undefined, onSpotted: () => undefined, onRadio: () => undefined };
+
+  constructor(waypoints: THREE.Vector3[], seed: number, parent: THREE.Object3D) {
+    this.waypoints = waypoints;
+    this.wpIdx = waypoints.length > 0 ? seed % waypoints.length : 0;
+    for (let i = 0; i < 2; i++) {
+      const h = makeHumanoid('officer', 700 + seed * 10 + i, false);
+      const wp = waypoints[this.wpIdx] ?? new THREE.Vector3();
+      h.group.position.set(wp.x + i * 1.2, 0, wp.z);
+      parent.add(h.group);
+      this.guards.push(h);
+    }
+  }
+
+  update(
+    dt: number,
+    t: number,
+    playerPos: THREE.Vector3,
+    playerRunning: boolean,
+    civilians: Civilian[],
+    colliders: BoxCollider[],
+  ): void {
+    this.alarmCd -= dt;
+    this.spotCd -= dt;
+    this.checkCd -= dt;
+    const lead = this.guards[0].group.position;
+    const dp = lead.distanceTo(playerPos);
+    if (dp < 15 && playerRunning && this.alarmCd <= 0) {
+      this.alarmCd = 6;
+      this.events.onAlarm(playerPos.clone());
+    }
+    if (dp < 2.4 && this.spotCd <= 0) {
+      this.spotCd = 8;
+      this.events.onSpotted();
+    }
+    // ambient document check of a nearby pedestrian
+    if (!this.checking && this.checkCd <= 0) {
+      let best: Civilian | null = null;
+      let bd = 36;
+      for (const c of civilians) {
+        if (c.state !== 'walk' && c.state !== 'idle') continue;
+        const d = lead.distanceToSquared(c.pos);
+        if (d < bd) {
+          bd = d;
+          best = c;
+        }
+      }
+      if (best) {
+        this.checking = best;
+        this.checkT = 0;
+      }
+      this.checkCd = 6 + Math.random() * 6;
+    }
+    if (this.checking) {
+      this.checkT += dt;
+      const c = this.checking;
+      for (let i = 0; i < 2; i++) {
+        const g = this.guards[i];
+        const tx = c.pos.x + (i === 0 ? 1.2 : -1.2);
+        const tz = c.pos.z + 0.8;
+        steerToward(g.group.position, new THREE.Vector3(tx, 0, tz), 2.2, dt, colliders);
+        g.group.position.y = 0;
+        g.group.rotation.y = Math.atan2(c.pos.x - g.group.position.x, c.pos.z - g.group.position.z);
+        g.setPose('guard', t + i, 0);
+      }
+      if (this.checkT > 5) {
+        this.events.onRadio();
+        c.state = 'walk';
+        c.stateT = 0;
+        this.checking = null;
+      }
+      return;
+    }
+    if (this.waypoints.length === 0) return;
+    const target = this.waypoints[this.wpIdx];
+    this.guards.forEach((g, i) => {
+      const off = new THREE.Vector3(target.x + i * 1.1, 0, target.z + (i ? 0.4 : 0));
+      steerToward(g.group.position, off, 1.9, dt, colliders);
+      g.group.position.y = 0;
+      g.group.rotation.y = Math.atan2(off.x - g.group.position.x, off.z - g.group.position.z);
+      g.setPose('walk', t + i * 2, 0.6);
+    });
+    if (lead.distanceTo(target) < 2) this.wpIdx = (this.wpIdx + 1) % this.waypoints.length;
+  }
+
+  dispose(parent: THREE.Object3D): void {
+    for (const g of this.guards) parent.remove(g.group);
+  }
 }

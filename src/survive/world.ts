@@ -58,6 +58,33 @@ export function losBlocked(ax: number, az: number, bx: number, bz: number, cols:
   return false;
 }
 
+/** True when standing right next to a wall/prop (but not inside it). */
+export function nearCover(x: number, z: number, cols: BoxCollider[], pad = 1.3): boolean {
+  for (const c of cols) {
+    if (x > c.x0 - pad && x < c.x1 + pad && z > c.z0 - pad && z < c.z1 + pad) {
+      const inside = x > c.x0 && x < c.x1 && z > c.z0 && z < c.z1;
+      if (!inside) return true;
+    }
+  }
+  return false;
+}
+
+/** Push a point out of colliders (for pickups/props placement). */
+export function nudgeOut(pos: THREE.Vector3, cols: BoxCollider[], pad = 1.4): void {
+  for (let tries = 0; tries < 24; tries++) {
+    let inside = false;
+    for (const c of cols) {
+      if (pos.x > c.x0 - pad && pos.x < c.x1 + pad && pos.z > c.z0 - pad && pos.z < c.z1 + pad) {
+        inside = true;
+        break;
+      }
+    }
+    if (!inside) break;
+    pos.x += 2;
+    if (pos.x > 97) pos.x = -97;
+  }
+}
+
 export interface Pickup {
   id: number;
   pos: THREE.Vector3;
@@ -89,6 +116,7 @@ export interface ZoneData {
   groundY: (x: number, z: number) => number;
   coverPoints: THREE.Vector3[];
   enemySpawns: THREE.Vector3[];
+  hotspots: THREE.Vector3[];
   update: (dt: number, t: number) => void;
 }
 
@@ -271,6 +299,8 @@ function buildCity(): ZoneData {
   const dumpMat = new THREE.MeshStandardMaterial({ color: '#2f4a3a', roughness: 0.9 });
   const crateMat = new THREE.MeshStandardMaterial({ color: '#7a6248', roughness: 1 });
   const fenceMat = new THREE.MeshStandardMaterial({ color: '#5c5a52', roughness: 0.9 });
+  const doorMat = new THREE.MeshStandardMaterial({ color: '#1e2126', roughness: 0.8 });
+  const canopyMat = new THREE.MeshStandardMaterial({ color: '#4a4a48', roughness: 0.9 });
 
   spans.forEach(([ax, bx], bi) => {
     spans.forEach(([az, bz], bj) => {
@@ -297,6 +327,10 @@ function buildCity(): ZoneData {
         bld.receiveShadow = true;
         group.add(bld);
         addCollider(px, pz, bw, bd);
+        const doorM = box(doorMat, 1.6, 2.4, 0.2, px - bw * 0.25, 1.2, pz + bd / 2 + 0.05);
+        doorM.castShadow = false;
+        group.add(doorM);
+        group.add(box(canopyMat, 2.6, 0.15, 1.4, px - bw * 0.25, 2.6, pz + bd / 2 + 0.7));
         // shop sign on some buildings
         if (rnd() < 0.55 && shopIdx < 24) {
           const [text, bg] = SHOPS[shopIdx % SHOPS.length];
@@ -326,6 +360,13 @@ function buildCity(): ZoneData {
         const pz = cz + (rnd() - 0.5) * d * 0.7;
         const s = 0.8 + rnd() * 0.8;
         group.add(box(crateMat, s, s, s, px, s / 2, pz, rnd() * 1.2));
+      }
+      if (rnd() < 0.55) {
+        const bx = cx + (rnd() - 0.5) * w * 0.4;
+        const bz = cz + (rnd() - 0.5) * d * 0.4;
+        group.add(box(crateMat, 1.8, 0.1, 0.5, bx, 0.5, bz));
+        group.add(box(crateMat, 1.8, 0.5, 0.1, bx, 0.85, bz - 0.25));
+        addCollider(bx, bz, 1.8, 0.6);
       }
       if (rnd() < 0.7) buildTree(cx + (rnd() - 0.5) * w * 0.5, cz + (rnd() - 0.5) * d * 0.5, 0.9 + rnd() * 0.7);
       // parked car in courtyard
@@ -364,10 +405,33 @@ function buildCity(): ZoneData {
     });
   });
 
+  // market row: stalls with canopies (nudged out of buildings)
+  {
+    const stallWood = new THREE.MeshStandardMaterial({ color: '#6e5a40', roughness: 1 });
+    const stallCloth = new THREE.MeshStandardMaterial({ color: '#7a3a3a', roughness: 0.9 });
+    const stallCloth2 = new THREE.MeshStandardMaterial({ color: '#3a5c7a', roughness: 0.9 });
+    for (let sxi = 0; sxi < 4; sxi++) {
+      const sp = new THREE.Vector3(8, 0, -38 + sxi * 6);
+      nudgeOut(sp, colliders, 2.2);
+      group.add(box(stallWood, 2.6, 0.9, 1.4, sp.x, 0.45, sp.z));
+      const legs: Array<[number, number]> = [[-1.2, -0.6], [1.2, -0.6], [-1.2, 0.6], [1.2, 0.6]];
+      for (const [ox, oz] of legs) {
+        group.add(box(stallWood, 0.12, 2.2, 0.12, sp.x + ox, 1.1, sp.z + oz));
+      }
+      const cloth = box(sxi % 2 ? stallCloth2 : stallCloth, 3, 0.12, 2, sp.x, 2.25, sp.z, 0.06);
+      cloth.castShadow = false;
+      group.add(cloth);
+      group.add(box(crateMat, 0.7, 0.7, 0.7, sp.x - 0.6, 1.25, sp.z));
+      group.add(box(crateMat, 0.6, 0.6, 0.6, sp.x + 0.5, 1.2, sp.z + 0.2));
+      addCollider(sp.x, sp.z, 2.8, 1.8);
+    }
+  }
+
   // street lights along roads
   const poleMat = new THREE.MeshStandardMaterial({ color: '#2c2c2c', roughness: 0.8 });
   const lampHeadMat = new THREE.MeshStandardMaterial({ color: '#444444', emissive: '#ffca7a', emissiveIntensity: 1.6 });
   const lampLights: THREE.PointLight[] = [];
+  const wirePts: THREE.Vector3[] = [];
   for (const r of ROADS) {
     for (let i = -2; i <= 2; i++) {
       const p = i * 40 + 12;
@@ -381,15 +445,50 @@ function buildCity(): ZoneData {
         const head = box(lampHeadMat, 0.7, 0.25, 0.4, horiz ? x : x - 2, 6.8, horiz ? z + 2 : z);
         head.castShadow = false;
         group.add(head);
+        wirePts.push(new THREE.Vector3(x, 6.9, z));
       }
     }
   }
+  // sagging wires between lamp poles
+  {
+    const pts: number[] = [];
+    for (let i = 1; i < wirePts.length; i++) {
+      const a = wirePts[i - 1];
+      const b = wirePts[i];
+      if (a.distanceTo(b) > 60) continue;
+      const segs = 6;
+      for (let sgm = 0; sgm < segs; sgm++) {
+        const t0 = sgm / segs;
+        const t1 = (sgm + 1) / segs;
+        const sag = (t: number): number => Math.sin(t * Math.PI) * -0.8;
+        pts.push(a.x + (b.x - a.x) * t0, a.y + sag(t0), a.z + (b.z - a.z) * t0);
+        pts.push(a.x + (b.x - a.x) * t1, a.y + sag(t1), a.z + (b.z - a.z) * t1);
+      }
+    }
+    const wg = new THREE.BufferGeometry();
+    wg.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+    group.add(new THREE.LineSegments(wg, new THREE.LineBasicMaterial({ color: '#1a1a1a', transparent: true, opacity: 0.7 })));
+  }
+
   // a few real point lights near spawn (dusk mood)
   for (const [x, z] of [[6.5, 12], [12, -6.5], [-49.5, -44], [62.5, 52]]) {
     const pl = new THREE.PointLight('#ffca7a', 12, 26, 1.8);
     pl.position.set(x, 6.6, z);
     group.add(pl);
     lampLights.push(pl);
+  }
+
+  // ground clutter: scattered paper scraps
+  {
+    const clutGeo = new THREE.PlaneGeometry(0.4, 0.3);
+    const clutMat = new THREE.MeshStandardMaterial({ color: '#b8b4a4', roughness: 1, side: THREE.DoubleSide });
+    for (let i = 0; i < 70; i++) {
+      const m = new THREE.Mesh(clutGeo, clutMat);
+      m.rotation.x = -Math.PI / 2;
+      m.rotation.z = rnd() * Math.PI * 2;
+      m.position.set((rnd() - 0.5) * 190, 0.03 + rnd() * 0.02, (rnd() - 0.5) * 190);
+      group.add(m);
+    }
   }
 
   // bus stop
@@ -502,6 +601,13 @@ function buildCity(): ZoneData {
     }
   };
 
+  const hotspots = [
+    new THREE.Vector3(8.5, 0, -20),
+    new THREE.Vector3(10, 0, -30),
+    new THREE.Vector3(-80, 0, -50),
+    new THREE.Vector3(50, 0, 8),
+  ];
+
   return {
     group,
     colliders,
@@ -515,6 +621,7 @@ function buildCity(): ZoneData {
     groundY: () => 0,
     coverPoints: [],
     enemySpawns: [],
+    hotspots,
     update,
   };
 }
@@ -692,6 +799,7 @@ function buildTraining(): ZoneData {
     groundY: () => 0,
     coverPoints: [],
     enemySpawns: [],
+    hotspots: [],
     update,
   };
 }
@@ -943,6 +1051,7 @@ function buildFrontline(): ZoneData {
     groundY: terrainH,
     coverPoints,
     enemySpawns,
+    hotspots: [],
     update,
   };
 }
@@ -1001,6 +1110,7 @@ function buildTransport(): ZoneData {
     groundY: () => 0,
     coverPoints: [],
     enemySpawns: [],
+    hotspots: [],
     update: () => undefined,
   };
 }

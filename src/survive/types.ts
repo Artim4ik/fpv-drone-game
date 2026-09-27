@@ -34,7 +34,8 @@ export type DocKind =
   | 'medical'
   | 'registration'
   | 'forged'
-  | 'incomplete';
+  | 'incomplete'
+  | 'summons';
 
 export type DocStatus = 'valid' | 'expired' | 'suspect' | 'incomplete';
 
@@ -62,6 +63,7 @@ export const DOC_META: Record<DocKind, { title: string; issuedBy: string }> = {
   registration: { title: 'Регистрационный лист', issuedBy: 'Жилищное управление, участок 7' },
   forged: { title: '«Освобождение» (подделка)', issuedBy: '???' },
   incomplete: { title: 'Незаполненный бланк', issuedBy: '???' },
+  summons: { title: 'Повестка (вызов)', issuedBy: 'Участок ТИД №7' },
 };
 
 const FIRST = ['Милан', 'Стефан', 'Павел', 'Данило', 'Йован', 'Марко', 'Лука', 'Томаш', 'Вит', 'Адам', 'Филип', 'Олег'];
@@ -83,7 +85,7 @@ export function makeDoc(kind: DocKind, seed: number, overrides: Partial<GameDoc>
   docCounter += 1;
   const meta = DOC_META[kind];
   const status: DocStatus =
-    kind === 'forged' ? 'suspect' : kind === 'incomplete' ? 'incomplete' : kind === 'registration' ? 'expired' : 'valid';
+    kind === 'summons' ? 'valid' : kind === 'forged' ? 'suspect' : kind === 'incomplete' ? 'incomplete' : kind === 'registration' ? 'expired' : 'valid';
   return {
     uid: `doc-${Date.now().toString(36)}-${docCounter}`,
     kind,
@@ -92,9 +94,9 @@ export function makeDoc(kind: DocKind, seed: number, overrides: Partial<GameDoc>
     idNumber: fictionalId(seed),
     issuedBy: meta.issuedBy,
     issueDate: `1${(seed % 9) + 1}.0${(seed % 8) + 1}.2025`,
-    expiry: kind === 'temp_pass' ? '30.09.2026' : '31.12.2027',
+    expiry: kind === 'temp_pass' ? '30.09.2026' : kind === 'summons' ? '05.10.2026' : '31.12.2027',
     status,
-    valid: status === 'valid' && kind !== 'forged',
+    valid: status === 'valid' && kind !== 'forged' && kind !== 'summons',
     photoSeed: seed * 31 + 7,
     note: '',
     ...overrides,

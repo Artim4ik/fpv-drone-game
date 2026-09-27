@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { resolveCollision, type BoxCollider } from './world';
 
-export type VanState = 'patrol' | 'notice' | 'slow' | 'stop' | 'doors' | 'check' | 'chase' | 'transport' | 'leave';
+export type VanState = 'patrol' | 'stakeout' | 'notice' | 'slow' | 'stop' | 'doors' | 'check' | 'chase' | 'transport' | 'leave';
 
 export interface VanRig {
   group: THREE.Group;
@@ -251,6 +251,7 @@ export interface VanEvents {
   onChaseStart: () => void;
   onGiveUp: () => void;
   onArrived: () => void;
+  onHorn: () => void;
 }
 
 export class VanAI {
@@ -262,6 +263,13 @@ export class VanAI {
   route: THREE.Vector3[];
   routeIdx = 0;
   suspicion = 0;
+  aggression = 1;
+  hotspots: THREE.Vector3[] = [];
+  stakeIdx = 0;
+  stakeT = 0;
+  stakeDur = 20;
+  patrolT = 0;
+  hornCd = 0;
   stateT = 0;
   doorT = 0;
   chaseT = 0;
@@ -276,10 +284,12 @@ export class VanAI {
     onChaseStart: () => undefined,
     onGiveUp: () => undefined,
     onArrived: () => undefined,
+    onHorn: () => undefined,
   };
 
-  constructor(route: THREE.Vector3[], parent: THREE.Object3D) {
+  constructor(route: THREE.Vector3[], hotspots: THREE.Vector3[], parent: THREE.Object3D) {
     this.route = route;
+    this.hotspots = hotspots.length > 0 ? hotspots : route;
     this.rig = buildMinibusMesh();
     this.pos = route.length > 0 ? route[0].clone() : new THREE.Vector3();
     this.rig.group.position.copy(this.pos);
@@ -334,10 +344,19 @@ export class VanAI {
 
     switch (this.state) {
       case 'patrol': {
-        targetSpeed = 8.5;
+        targetSpeed = 8.5 + this.aggression * 1.2;
         steerTarget = this.route[this.routeIdx];
         if (this.pos.distanceTo(steerTarget) < 6) {
           this.routeIdx = (this.routeIdx + 1) % this.route.length;
+        }
+        this.patrolT += dt;
+        if (this.patrolT > 30 && this.cooldown <= 0 && this.hotspots.length > 0) {
+          this.patrolT = 0;
+          this.stakeT = 0;
+          this.stakeIdx = (this.stakeIdx + 1) % this.hotspots.length;
+          this.state = 'stakeout';
+          this.stateT = 0;
+          this.stakeDur = 16 + Math.random() * 16;
         }
         // notice player: close, visible-ish, cooldown elapsed
         if (this.cooldown <= 0 && distP < 30 && !playerHidden && !playerDetained) {
@@ -350,8 +369,8 @@ export class VanAI {
       case 'notice': {
         targetSpeed = 6;
         steerTarget = this.route[this.routeIdx];
-        this.suspicion = Math.min(1, this.suspicion + dt * 0.55);
-        if (playerRunning && distP < 30) this.suspicion = Math.min(1, this.suspicion + dt * 0.5);
+        this.suspicion = Math.min(1, this.suspicion + dt * (0.55 + this.aggression * 0.45));
+        if (playerRunning && distP < 30) this.suspicion = Math.min(1, this.suspicion + dt * (0.5 + this.aggression * 0.4));
         if (this.suspicion >= 1) {
           this.state = 'slow';
           this.stateT = 0;
@@ -407,6 +426,12 @@ export class VanAI {
         this.chaseT += dt;
         if (distP > 55) this.lostT += dt;
         else this.lostT = 0;
+        if (playerHidden) this.lostT += dt * 1.5;
+        this.hornCd -= dt;
+        if (distP < 22 && this.hornCd <= 0) {
+          this.hornCd = 3;
+          this.events.onHorn();
+        }
         steerTarget = playerPos;
         targetSpeed = distP > 6 ? 7.5 : 0;
         rig.beaconMat.emissiveIntensity = 2 + Math.sin(t * 12) * 2;
@@ -416,6 +441,36 @@ export class VanAI {
           this.cooldown = 30;
           this.rig.setDoor(0);
           this.events.onGiveUp();
+        }
+        break;
+      }
+      case 'stakeout': {
+        const spot = this.hotspots[this.stakeIdx];
+        if (this.suspicion >= 1 && !playerHidden) {
+          this.state = 'slow';
+          this.stateT = 0;
+          break;
+        }
+        if (this.pos.distanceTo(spot) < 4) {
+          targetSpeed = 0;
+          this.stakeT += dt;
+          if (!playerHidden && !playerDetained && distP < 24) {
+            this.suspicion = Math.min(1, this.suspicion + dt * (0.5 + this.aggression * 0.4));
+            if (this.suspicion >= 1) {
+              this.state = 'slow';
+              this.stateT = 0;
+              break;
+            }
+          } else {
+            this.suspicion = Math.max(0, this.suspicion - dt * 0.3);
+          }
+          if (this.stakeT > this.stakeDur) {
+            this.state = 'leave';
+            this.stateT = 0;
+          }
+        } else {
+          steerTarget = spot;
+          targetSpeed = 7;
         }
         break;
       }

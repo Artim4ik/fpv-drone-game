@@ -97,13 +97,13 @@ function Minimap({ hud }: { hud: HudSnapshot }) {
 
 function DocCard({ doc }: { doc: GameDoc }) {
   const photo = useMemo(() => docPhotoUrl(doc.photoSeed), [doc.photoSeed]);
-  const statusColor = doc.status === 'valid' ? '#9fe07a' : doc.status === 'expired' ? '#ffd27a' : doc.status === 'suspect' ? '#ff5a4a' : '#8a8a8a';
+  const statusColor = doc.kind === 'summons' ? '#ff9a4a' : doc.status === 'valid' ? '#9fe07a' : doc.status === 'expired' ? '#ffd27a' : doc.status === 'suspect' ? '#ff5a4a' : '#8a8a8a';
   return (
     <div className="gc-doc">
       <div className="gc-doc__head">
         <strong>{doc.title}</strong>
         <span style={{ color: statusColor }}>
-          {doc.status === 'valid' ? 'ДЕЙСТВИТЕЛЕН' : doc.status === 'expired' ? 'ПРОСРОЧЕН' : doc.status === 'suspect' ? 'ПОДОЗРИТЕЛЕН' : 'НЕ ЗАПОЛНЕН'}
+          {doc.kind === 'summons' ? 'ТРЕБУЕТ ЯВКИ' : doc.status === 'valid' ? 'ДЕЙСТВИТЕЛЕН' : doc.status === 'expired' ? 'ПРОСРОЧЕН' : doc.status === 'suspect' ? 'ПОДОЗРИТЕЛЕН' : 'НЕ ЗАПОЛНЕН'}
         </span>
       </div>
       <div className="gc-doc__body">

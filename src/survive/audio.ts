@@ -290,4 +290,37 @@ export class AudioEngine {
   hurt(): void {
     this.blip(160, 0.2, 0.2, 'sawtooth', 90);
   }
+  horn(): void {
+    this.blip(370, 0.35, 0.22, 'square');
+    this.blip(466, 0.35, 0.18, 'square');
+  }
+  siren(): void {
+    if (!this.ctx || !this.master || this.muted) return;
+    try {
+      const ctx = this.ctx;
+      const o = ctx.createOscillator();
+      o.type = 'triangle';
+      o.frequency.value = 700;
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = 0.7;
+      const lg = ctx.createGain();
+      lg.gain.value = 280;
+      lfo.connect(lg).connect(o.frequency);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.12, ctx.currentTime + 0.3);
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 2.4);
+      o.connect(g).connect(this.master);
+      o.start();
+      lfo.start();
+      o.stop(ctx.currentTime + 2.5);
+      lfo.stop(ctx.currentTime + 2.5);
+    } catch {
+      /* ignore */
+    }
+  }
+  shout(): void {
+    this.blip(520, 0.12, 0.16, 'sawtooth', 700);
+    window.setTimeout(() => this.blip(620, 0.14, 0.16, 'sawtooth', 480), 140);
+  }
 }

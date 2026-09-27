@@ -3,8 +3,8 @@
 // encounters, combat, missions, VFX, net sync. All fictional.
 // ============================================================
 import * as THREE from 'three';
-import { World, resolveCollision, losBlocked, type ZoneData } from './world';
-import { makeHumanoid, Civilian, Hostile, steerToward, makeNameTag, type Humanoid } from './actors';
+import { World, nearCover, resolveCollision, losBlocked, type ZoneData } from './world';
+import { makeHumanoid, Civilian, FootPatrol, Hostile, steerToward, makeNameTag, type Humanoid } from './actors';
 import { VanAI } from './minibus';
 import { AudioEngine } from './audio';
 import { NetClient, type ChatMsg } from './net';
@@ -175,6 +175,15 @@ export class Game {
   private driver: Humanoid | null = null;
   private civilians: Civilian[] = [];
   private gunshotCity = false;
+  private footPatrols: FootPatrol[] = [];
+  private lastShownDoc: GameDoc | null = null;
+  private summonsT = 0;
+  private warnedChase = false;
+  private lastMx = 0;
+  private lastMz = 0;
+  private tmpLead = new THREE.Vector3();
+  private hornCd = 0;
+  private officePos = new THREE.Vector3(-60, 0, 84);
 
   // training
   private instructor: Humanoid | null = null;
@@ -403,6 +412,8 @@ export class Game {
   private clearActors(): void {
     for (const c of this.civilians) c.dispose(this.scene);
     this.civilians = [];
+    for (const fp of this.footPatrols) fp.dispose(this.scene);
+    this.footPatrols = [];
     for (const h of this.hostiles) h.dispose(this.scene);
     this.hostiles = [];
     for (const o of this.officers) this.scene.remove(o.group);
@@ -443,7 +454,8 @@ export class Game {
       this.buildPlayer('civilian');
       this.setArmed(false);
       // van + officers + driver
-      this.van = new VanAI(this.zone.route, this.scene);
+      this.van = new VanAI(this.zone.route, this.zone.hotspots, this.scene);
+      this.van.events.onHorn = () => this.audio.horn();
       this.van.events.onDoorsOpened = () => {
         this.audio.doorVan();
         this.officerState = 'exiting';
@@ -472,6 +484,48 @@ export class Game {
       for (let i = 0; i < 9; i++) {
         const loop = this.zone.walkLoops[(i * 5 + 2) % this.zone.walkLoops.length];
         this.civilians.push(new Civilian(loop, 10 + i * 7, this.scene));
+      }
+      // queue at the market + crowd at the bus stop
+      const queueSpots = [
+        new THREE.Vector3(6.4, 0, -34),
+        new THREE.Vector3(6.4, 0, -32.6),
+        new THREE.Vector3(6.4, 0, -31.2),
+        new THREE.Vector3(7.6, 0, -22.4),
+        new THREE.Vector3(9.4, 0, -22.6),
+      ];
+      queueSpots.forEach((q, qi) => {
+        const zq = this.zone;
+        if (!zq) return;
+        const loop = zq.walkLoops[(qi * 3 + 1) % zq.walkLoops.length];
+        this.civilians.push(new Civilian(loop, 200 + qi * 13, this.scene, q));
+      });
+      // foot patrol teams between hotspots
+      {
+        const zf = this.zone;
+        if (zf) {
+          const hw = zf.hotspots.length > 0 ? zf.hotspots : zf.route;
+          for (let f = 0; f < 2; f++) {
+            const fp = new FootPatrol(hw, f * 2 + 1, this.scene);
+            fp.events.onAlarm = () => {
+              if (!this.van || this.detained) return;
+              if (this.van.state === 'patrol' || this.van.state === 'notice' || this.van.state === 'stakeout') {
+                this.van.suspicion = 1;
+                this.audio.whistle();
+                this.showMessage('Пеший патруль заметил вас!', 2.5);
+              }
+            };
+            fp.events.onSpotted = () => {
+              if (!this.van || this.detained) return;
+              this.audio.shout();
+              this.showMessage('— Стояти! Документи!', 2.5);
+              if (this.van.state === 'patrol' || this.van.state === 'notice' || this.van.state === 'stakeout') {
+                this.van.suspicion = 1;
+              }
+            };
+            fp.events.onRadio = () => this.audio.radioBlip();
+            this.footPatrols.push(fp);
+          }
+        }
       }
       this.objective = { title: 'Найдите документы', detail: 'Осмотрите район: дворы, гаражи, машины. [E] — взять', progress: `0/${this.zone.pickups.length}` };
     } else if (ch === 'minibus') {
@@ -581,6 +635,7 @@ export class Game {
     this.audio.uiClick();
     if (i === 0) {
       const d = this.docs[this.selDoc];
+      this.lastShownDoc = d ?? null;
       if (!d) {
         this.dialogLines = ['— Нет документов? Тогда проедем с нами.', '— В машину.'];
         this.audio.stingDetained();
@@ -600,6 +655,11 @@ export class Game {
           this.audio.stingDetained();
           window.setTimeout(() => this.grabPlayer(), 1600);
         }, 2200);
+      } else if (d.kind === 'summons') {
+        this.dialogLines = ['— Это повестка, а не документы.', '— Раз она у тебя — поедешь с нами.'];
+        this.audio.stingDetained();
+        this.dialogOptions = [];
+        window.setTimeout(() => this.grabPlayer(), 1600);
       } else {
         this.dialogLines = [...DIALOG.bad];
         this.audio.stingDetained();
@@ -643,6 +703,15 @@ export class Game {
     this.officerState = 'return';
     this.van?.release();
     this.surviveActive = true;
+    const weak = this.lastShownDoc && (this.lastShownDoc.kind === 'medical' || this.lastShownDoc.kind === 'registration');
+    if ((weak || Math.random() < 0.3) && this.summonsT <= 0) {
+      const sd = makeDoc('summons', Math.floor(Math.random() * 100000));
+      this.docs.push(sd);
+      this.opts.onDocs([...this.docs]);
+      this.summonsT = 150;
+      this.audio.radioBlip();
+      window.setTimeout(() => this.showMessage('Вам вручили повестку. Явиться на участок!', 4), 2600);
+    }
     this.objective = { title: 'Переждите облаву', detail: 'Не попадайтесь патрулю на глаза', progress: `${Math.floor(this.surviveNeed - this.survivedT)}с` };
     window.setTimeout(() => {
       if (this.encounter === 'released') this.encounter = 'none';
@@ -1295,6 +1364,19 @@ export class Game {
         return;
       }
     }
+    // report to the office with a summons (they were waiting)
+    if (this.summonsT > 0 && !this.eHeld) {
+      const o = this.officePos;
+      if (Math.hypot(this.pos.x - o.x, this.pos.z - o.z) < 3.5) {
+        this.eHeld = true;
+        this.summonsT = 0;
+        this.world.setBeaconVisible(1, 'office', 0, -50, 0, false);
+        this.showMessage('На участке вас уже ждали…', 3);
+        this.audio.stingDetained();
+        this.detainPlayer();
+        return;
+      }
+    }
     // bus station final event
     if (this.surviveActive && this.survivedTDone() && !this.stationDone) {
       const d = Math.hypot(this.pos.x - 8.5, this.pos.z + 24);
@@ -1475,6 +1557,10 @@ export class Game {
       }
     }
     this.moveSpeed = THREE.MathUtils.lerp(this.moveSpeed, Math.hypot(mx, mz), 1 - Math.exp(-dt * 8));
+    if (Math.hypot(mx, mz) > 0.5) {
+      this.lastMx = mx;
+      this.lastMz = mz;
+    }
     this.pos.x += mx * dt;
     this.pos.z += mz * dt;
     // vault action
@@ -1557,16 +1643,40 @@ export class Game {
     this.updatePlayer(dt, z, false);
     if (!this.van) return;
 
-    const hidden = this.crouch && losBlocked(this.van.pos.x, this.van.pos.z, this.pos.x, this.pos.z, z.colliders);
+    const vDist = Math.hypot(this.pos.x - this.van.pos.x, this.pos.z - this.van.pos.z);
+    const blocked = losBlocked(this.van.pos.x, this.van.pos.z, this.pos.x, this.pos.z, z.colliders);
+    const inCover = nearCover(this.pos.x, this.pos.z, z.colliders);
+    const hidden = this.crouch && blocked && (inCover || vDist > 30);
+    if (hidden && this.van.state !== 'chase') this.prompt = 'ВЫ СКРЫТЫ';
     const running = this.moveSpeed > 5;
-    const heatMul = 1 + this.heat * 0.35;
-    void heatMul;
-    this.van.update(dt, this.time, this.pos, running, hidden, this.detained, z.colliders);
+    this.van.aggression = Math.min(2.5, 1 + this.heat * 0.4 + (this.summonsT > 0 ? 0.5 : 0));
+    if (this.van.state === 'chase' && this.moveSpeed > 0.5) {
+      const ml = Math.hypot(this.lastMx, this.lastMz) || 1;
+      this.tmpLead.set(this.pos.x + (this.lastMx / ml) * 4, 0, this.pos.z + (this.lastMz / ml) * 4);
+    } else {
+      this.tmpLead.copy(this.pos);
+    }
+    this.van.update(dt, this.time, this.tmpLead, running, hidden, this.detained, z.colliders);
+    if (vDist < 2.6 && vDist > 0.01 && !this.detained) {
+      const px = (this.pos.x - this.van.pos.x) / vDist;
+      const pz = (this.pos.z - this.van.pos.z) / vDist;
+      this.pos.x = this.van.pos.x + px * 2.6;
+      this.pos.z = this.van.pos.z + pz * 2.6;
+      resolveCollision(this.pos, 0.45, z.colliders);
+      this.shake = Math.min(1, this.shake + dt * 3);
+      this.hornCd -= dt;
+      if (this.hornCd <= 0) {
+        this.hornCd = 2.5;
+        this.audio.horn();
+        this.showMessage('Бусик прижал!', 1.6);
+      }
+    }
 
     // civilians
     const danger = this.van.state === 'chase' || this.van.state === 'slow' ? this.van.pos : this.van.state === 'check' ? this.van.pos : null;
     for (const c of this.civilians) c.update(dt, this.time, danger, this.gunshotCity, z.colliders);
     this.gunshotCity = false;
+    for (const fp of this.footPatrols) fp.update(dt, this.time, this.pos, running, this.civilians, z.colliders);
 
     // driver follows van
     if (this.driver) {
@@ -1599,6 +1709,21 @@ export class Game {
       }
     }
 
+    // a passerby warns you once per chase
+    if (this.van.state === 'chase' && !this.warnedChase) {
+      this.warnedChase = true;
+      let bw = 324;
+      for (const c of this.civilians) {
+        const d = c.pos.distanceToSquared(this.pos);
+        if (d < bw) bw = d;
+      }
+      if (bw < 324) {
+        this.showMessage('Прохожий: «Тікай! Бусик!»', 2.5);
+        this.audio.shout();
+      }
+    }
+    if (this.van.state !== 'chase') this.warnedChase = false;
+
     // struggle QTE
     if (this.encounter === 'struggle') {
       this.struggleT -= dt;
@@ -1609,7 +1734,7 @@ export class Game {
     }
 
     // survive timer after first release
-    if (this.surviveActive && !this.survivedTDone()) {
+    if (this.surviveActive && !this.survivedTDone() && this.summonsT <= 0) {
       if (this.van.state === 'patrol' || this.van.state === 'leave') {
         this.survivedT += dt;
         const left = Math.max(0, Math.ceil(this.surviveNeed - this.survivedT));
@@ -1619,6 +1744,27 @@ export class Game {
           this.world.setBeaconVisible(0, 'bus', 8.5, 1, -24, true);
           this.showMessage('Путь свободен. К остановке!', 3);
         }
+      }
+    }
+    // summons countdown
+    if (this.summonsT > 0) {
+      this.summonsT -= dt;
+      const office = this.officePos;
+      this.world.setBeaconVisible(1, 'office', office.x, 1, office.z, true);
+      this.objective = {
+        title: 'Повестка: явиться на участок',
+        detail: `Участок ТИД №7 отмечен. Осталось ${Math.max(0, Math.ceil(this.summonsT))}с — или не являйтесь и прячьтесь`,
+        progress: `${Math.max(0, Math.ceil(this.summonsT))}с`,
+      };
+      if (Math.hypot(this.pos.x - office.x, this.pos.z - office.z) < 3.5) {
+        this.prompt = '[E] — зайти на участок';
+      }
+      if (this.summonsT <= 0) {
+        this.heat += 2;
+        this.world.setBeaconVisible(1, 'office', 0, -50, 0, false);
+        this.showMessage('Неявка по повестке. Объявлен розыск!', 4);
+        this.audio.siren();
+        this.objective = { title: 'Розыск', detail: 'Патрули ищут именно вас. Доберитесь до остановки', progress: '' };
       }
     }
     // pickup prompt
