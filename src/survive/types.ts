@@ -56,18 +56,18 @@ export interface GameDoc {
 }
 
 export const DOC_META: Record<DocKind, { title: string; issuedBy: string }> = {
-  civil_id: { title: 'Удостоверение личности', issuedBy: 'Бюро гражданского реестра Вельгорода' },
-  exemption: { title: 'Освобождение от призыва', issuedBy: 'Окружная комиссия Крежны' },
-  temp_pass: { title: 'Временный пропуск', issuedBy: 'Муниципальный пропускной пункт №3' },
-  medical: { title: 'Медицинская справка', issuedBy: 'Городская поликлиника №2' },
-  registration: { title: 'Регистрационный лист', issuedBy: 'Жилищное управление, участок 7' },
-  forged: { title: '«Освобождение» (подделка)', issuedBy: '???' },
-  incomplete: { title: 'Незаполненный бланк', issuedBy: '???' },
-  summons: { title: 'Повестка (вызов)', issuedBy: 'Участок ТИД №7' },
+  civil_id: { title: 'Паспорт громадянина', issuedBy: 'ДМСУ м. Києва' },
+  exemption: { title: 'Відстрочка від призову', issuedBy: 'Районна комісія' },
+  temp_pass: { title: 'Тимчасова перепустка', issuedBy: 'Контрольно-пропускний пункт №3' },
+  medical: { title: 'Медична довідка', issuedBy: 'Міська поліклініка №2' },
+  registration: { title: 'Реєстраційний лист', issuedBy: 'Житлове управління, дільниця 7' },
+  forged: { title: '«Відстрочка» (підробка)', issuedBy: '???' },
+  incomplete: { title: 'Незаповнений бланк', issuedBy: '???' },
+  summons: { title: 'Повістка (виклик)', issuedBy: 'Дільниця ТЦК №7' },
 };
 
-const FIRST = ['Милан', 'Стефан', 'Павел', 'Данило', 'Йован', 'Марко', 'Лука', 'Томаш', 'Вит', 'Адам', 'Филип', 'Олег'];
-const LAST = ['Ковач', 'Новак', 'Хорват', 'Пешич', 'Маркович', 'Степанов', 'Гаврич', 'Леснич', 'Вукович', 'Драганов', 'Зорич', 'Краль'];
+const FIRST = ['Тарас', 'Богдан', 'Олександр', 'Данило', 'Іван', 'Марко', 'Лука', 'Остап', 'Віталій', 'Андрій', 'Пилип', 'Олег'];
+const LAST = ['Шевченко', 'Коваленко', 'Бондаренко', 'Ткаченко', 'Марченко', 'Степаненко', 'Гавриленко', 'Лісничий', 'Вовченко', 'Драч', 'Зоренко', 'Король'];
 
 export function fictionalName(seed: number): string {
   const f = FIRST[Math.abs(seed) % FIRST.length];
@@ -77,7 +77,7 @@ export function fictionalName(seed: number): string {
 
 export function fictionalId(seed: number): string {
   const a = 100000 + (Math.abs(seed * 7919) % 900000);
-  return `ВГ-${a}`;
+  return `АА-${a}`;
 }
 
 let docCounter = 0;
@@ -187,11 +187,11 @@ export interface ChatLine {
 }
 
 export const CHAPTER_LABELS: Record<ChapterId, string> = {
-  city: 'ГЛАВА 1 — ВЕЛЬГОРОД',
-  minibus: 'ПЕРЕХОД — МИКРОАВТОБУС',
-  training: 'ГЛАВА 2 — УЧЕБНЫЙ ЦЕНТР «СЕВЕРНЫЙ»',
-  transport: 'ПЕРЕХОД — КОЛОННА',
-  frontline: 'ГЛАВА 3 — ДОЛИНА КРЕЖНЫ',
+  city: 'РОЗДІЛ 1 — КИЇВ',
+  minibus: 'ПЕРЕЇЗД — БУСИК',
+  training: 'РОЗДІЛ 2 — НАВЧАЛЬНИЙ ЦЕНТР «ДЕСНА»',
+  transport: 'ПЕРЕЇЗД — КОЛОНА',
+  frontline: 'РОЗДІЛ 3 — СХІДНИЙ НАПРЯМОК',
 };
 
 const SAVE_KEY = 'grey-corridor-save-v1';

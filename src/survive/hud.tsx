@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChatMsg } from './net';
 import { docPhotoUrl } from './textures';
 import type { GameDoc, HudSnapshot, Quality } from './types';
+import { ASSET_URLS } from './assets';
 
 export interface HudViewProps {
   hud: HudSnapshot | null;
@@ -25,9 +26,9 @@ export interface HudViewProps {
 }
 
 const QUALITY_LABEL: Record<Quality, string> = {
-  low: 'НИЗК.',
-  medium: 'СРЕДН.',
-  high: 'ВЫСОК.',
+  low: 'НИЗЬК.',
+  medium: 'СЕРЕДН.',
+  high: 'ВИСОК.',
   ultra: 'УЛЬТРА',
 };
 
@@ -90,7 +91,7 @@ function Minimap({ hud }: { hud: HudSnapshot }) {
     }
     g.fillStyle = 'rgba(220,230,220,0.6)';
     g.font = 'bold 10px Arial';
-    g.fillText('С', S / 2 - 3, 12);
+    g.fillText('П', S / 2 - 3, 12);
   }, [hud]);
   return <canvas ref={ref} width={148} height={148} className="gc-minimap" />;
 }
@@ -103,19 +104,19 @@ function DocCard({ doc }: { doc: GameDoc }) {
       <div className="gc-doc__head">
         <strong>{doc.title}</strong>
         <span style={{ color: statusColor }}>
-          {doc.kind === 'summons' ? 'ТРЕБУЕТ ЯВКИ' : doc.status === 'valid' ? 'ДЕЙСТВИТЕЛЕН' : doc.status === 'expired' ? 'ПРОСРОЧЕН' : doc.status === 'suspect' ? 'ПОДОЗРИТЕЛЕН' : 'НЕ ЗАПОЛНЕН'}
+          {doc.kind === 'summons' ? 'ПОТРЕБУЄ ЯВКИ' : doc.status === 'valid' ? 'ДІЙСНИЙ' : doc.status === 'expired' ? 'ПРОСТРОЧЕНИЙ' : doc.status === 'suspect' ? 'ПІДОЗРІЛИЙ' : 'НЕ ЗАПОВНЕНИЙ'}
         </span>
       </div>
       <div className="gc-doc__body">
         <img src={photo} alt="Фото" />
         <div>
-          <p><b>Владелец:</b> {doc.holder}</p>
+          <p><b>Власник:</b> {doc.holder}</p>
           <p><b>№:</b> {doc.idNumber}</p>
-          <p><b>Выдан:</b> {doc.issuedBy}</p>
+          <p><b>Видано:</b> {doc.issuedBy}</p>
           <p><b>Дата:</b> {doc.issueDate} — {doc.expiry}</p>
         </div>
       </div>
-      <p className="gc-doc__note">Вымышленный документ. Все данные сгенерированы.</p>
+      <p className="gc-doc__note">Вигаданий документ. Усі дані згенеровано.</p>
     </div>
   );
 }
@@ -143,7 +144,7 @@ function ChatBox({ chat, onSend }: { chat: ChatMsg[]; onSend: (t: string) => voi
           setText('');
         }}
       >
-        <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Сообщение команде…" maxLength={140} />
+        <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Повідомлення команді…" maxLength={140} />
       </form>
     </div>
   );
@@ -161,18 +162,18 @@ function Briefing({ onStart }: { onStart: (name: string, q: Quality) => void }) 
   return (
     <section className="gc-briefing">
       <div className="gc-briefing__panel">
-        <div className="gc-eyebrow"><span /> ВЫМЫШЛЕННАЯ ИСТОРИЯ • МУЛЬТИПЛЕЕР 1–16</div>
-        <h1>GREY<br /><em>CORRIDOR</em></h1>
-        <p className="gc-lead">Вельгород. Долина Крежны. Обычный горожанин — и система, от которой не скрыться.</p>
+        <div className="gc-eyebrow"><span /> ВИГАДАНА ІСТОРІЯ • МУЛЬТИПЛЕЄР 1–16</div>
+        <h1>СІРИЙ<br /><em>КОРИДОР</em></h1>
+        <p className="gc-lead">Київ. Східний напрямок. Звичайний городянин — і система, від якої не сховатись.</p>
         <p className="gc-story">
-          Найди документы. Переживи облаву. Пройди учебный центр. Выживи в долине.
-          Играйте вместе: позиции, задачи и чат синхронизируются между игроками.
+          Знайди документи. Переживи облаву. Пройди навчальний центр. Виживи на сході.
+          Грайте разом: позиції, завдання та чат синхронізуються між гравцями.
         </p>
         <div className="gc-row">
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Позывной…"
+            placeholder="Позивний…"
             maxLength={16}
             className="gc-name"
           />
@@ -189,26 +190,26 @@ function Briefing({ onStart }: { onStart: (name: string, q: Quality) => void }) 
           type="button"
           onClick={() => {
             try {
-              localStorage.setItem('grey_name', name || 'Wanderer');
+              localStorage.setItem('grey_name', name || 'Мандрівник');
             } catch {
               /* ignore */
             }
-            onStart(name || 'Wanderer', q);
+            onStart(name || 'Мандрівник', q);
           }}
         >
-          НАЧАТЬ ИГРУ
+          ПОЧАТИ ГРУ
         </button>
         <div className="gc-controls">
-          <div><b>WASD</b><span>движение</span></div>
-          <div><b>Мышь</b><span>камера (клик — захват)</span></div>
-          <div><b>Shift</b><span>бег</span></div>
-          <div><b>E</b><span>действие</span></div>
-          <div><b>C</b><span>присесть</span></div>
-          <div><b>Tab</b><span>документы</span></div>
-          <div><b>ЛКМ/ПКМ</b><span>огонь / прицел</span></div>
-          <div><b>R</b><span>перезарядка</span></div>
+          <div><b>WASD</b><span>рух</span></div>
+          <div><b>Миша</b><span>камера (клік — захоплення)</span></div>
+          <div><b>Shift</b><span>біг</span></div>
+          <div><b>E</b><span>дія</span></div>
+          <div><b>C</b><span>присісти</span></div>
+          <div><b>Tab</b><span>документи</span></div>
+          <div><b>ЛКМ/ПКМ</b><span>вогонь / приціл</span></div>
+          <div><b>R</b><span>перезаряджання</span></div>
         </div>
-        <p className="gc-fiction">Вымысел: город, организации, персонажи и документы придуманы. Совпадения случайны.</p>
+        <p className="gc-fiction">Вигадка: місто, організації, персонажі та документи вигадані. Збіги випадкові.</p>
       </div>
     </section>
   );
@@ -222,6 +223,7 @@ export default function HudView(props: HudViewProps) {
   const cinematic = hud.chapter === 'minibus' || hud.chapter === 'transport';
   return (
     <div className="gc-hud">
+      <img className="gc-lensdirt" src={ASSET_URLS.lensdirt} alt="" draggable={false} />
       {hud.fade === 'out' && <div key="fout" className="gc-fade" />}
       {hud.fade === 'in' && <div key="fin" className="gc-fade gc-fade--in" />}
       {hud.hurtT > 0 && <div key={hud.hurtT} className="gc-hurt" />}
@@ -237,16 +239,16 @@ export default function HudView(props: HudViewProps) {
         <div className="gc-brand">
           <span className="gc-brand__mark" />
           <div>
-            <strong>GREY CORRIDOR</strong>
+            <strong>СІРИЙ КОРИДОР</strong>
             <span>{hud.chapterLabel}</span>
           </div>
         </div>
         <div className="gc-compass">
-          <span style={{ transform: `translateX(${-((hud.compass % 90) / 90) * 40}px)` }}>С&nbsp;&nbsp;В&nbsp;&nbsp;Ю&nbsp;&nbsp;З&nbsp;&nbsp;С&nbsp;&nbsp;В&nbsp;&nbsp;Ю&nbsp;&nbsp;З</span>
+          <span style={{ transform: `translateX(${-((hud.compass % 90) / 90) * 40}px)` }}>П&nbsp;&nbsp;С&nbsp;&nbsp;Пд&nbsp;&nbsp;З&nbsp;&nbsp;П&nbsp;&nbsp;С&nbsp;&nbsp;Пд&nbsp;&nbsp;З</span>
           <b>{Math.round(hud.compass)}°</b>
         </div>
         <div className="gc-net">
-          <span className={hud.online ? 'on' : 'off'}>{hud.online ? `ONLINE • ${hud.players} • ${hud.ping}ms` : 'OFFLINE'} {hud.isHost && '• HOST'}</span>
+          <span className={hud.online ? 'on' : 'off'}>{hud.online ? `ОНЛАЙН • ${hud.players} • ${hud.ping}ms` : 'ОФЛАЙН'} {hud.isHost && '• ХОСТ'}</span>
           <span>{hud.fps} FPS</span>
           <button type="button" onClick={props.onMute}>{hud.muted ? 'SND OFF' : 'SND ON'}</button>
           <button type="button" onClick={props.onExit}>МЕНЮ</button>
@@ -270,10 +272,10 @@ export default function HudView(props: HudViewProps) {
       </div>
 
       <div className="gc-left">
-        <div className="gc-vital"><span>ЗДОРОВЬЕ</span><Bar value={hud.health} className="hp" /></div>
-        <div className="gc-vital"><span>ВЫНОСЛИВОСТЬ</span><Bar value={hud.stamina} className="st" /></div>
+        <div className="gc-vital"><span>ЗДОРОВ’Я</span><Bar value={hud.health} className="hp" /></div>
+        <div className="gc-vital"><span>ВИТРИВАЛІСТЬ</span><Bar value={hud.stamina} className="st" /></div>
         {hud.chapter === 'city' && (
-          <div className="gc-docsline">ДОКУМЕНТЫ <b>{hud.docCount}</b> • ДЕЙСТВ. <b>{hud.validCount}</b> <i>[Tab]</i></div>
+          <div className="gc-docsline">ДОКУМЕНТИ <b>{hud.docCount}</b> • ДІЙСН. <b>{hud.validCount}</b> <i>[Tab]</i></div>
         )}
         {hud.armed && (
           <div className="gc-ammo">БК <b>{hud.ammo}</b> / {hud.reserve}</div>
@@ -289,7 +291,7 @@ export default function HudView(props: HudViewProps) {
       {/* encounter dialog */}
       {hud.encounter === 'dialog' && (
         <section className="gc-dialog">
-          <div className="gc-dialog__who">ТИД • ПАТРУЛЬ 0417</div>
+          <div className="gc-dialog__who">ТЦК • ПАТРУЛЬ 0417</div>
           <div className="gc-dialog__lines">
             {hud.dialogLines.map((l, i) => (
               <p key={i}>{l}</p>
@@ -313,7 +315,7 @@ export default function HudView(props: HudViewProps) {
       {/* struggle QTE */}
       {hud.encounter === 'struggle' && (
         <section className="gc-struggle">
-          <h2>ВЫРЫВАЙТЕСЬ! ЖМИТЕ E!</h2>
+          <h2>ВИРИВАЙСЯ! ТИСНИ E!</h2>
           <Bar value={hud.struggle * 100} className="st" />
         </section>
       )}
@@ -323,17 +325,17 @@ export default function HudView(props: HudViewProps) {
         <div className="gc-subs">{hud.dialogLines[0]}</div>
       )}
 
-      {hud.dead && <div className="gc-dead">ВЫ РАНЕНЫ…</div>}
+      {hud.dead && <div className="gc-dead">ВИ ПОРАНЕНІ…</div>}
 
       {/* wallet */}
       {walletOpen && (
         <section className="gc-wallet">
           <div className="gc-wallet__panel">
             <header>
-              <strong>ДОКУМЕНТЫ</strong>
-              <button type="button" onClick={props.onToggleWallet}>ЗАКРЫТЬ [Tab]</button>
+              <strong>ДОКУМЕНТИ</strong>
+              <button type="button" onClick={props.onToggleWallet}>ЗАКРИТИ [Tab]</button>
             </header>
-            {docs.length === 0 && <p className="gc-empty">Пока пусто. Ищите документы в городе.</p>}
+            {docs.length === 0 && <p className="gc-empty">Поки порожньо. Шукайте документи у місті.</p>}
             <div className="gc-wallet__grid">
               {docs.map((d) => (
                 <DocCard key={d.uid} doc={d} />
@@ -355,13 +357,13 @@ export default function HudView(props: HudViewProps) {
             ))}
           </div>
           <div className="gc-stats">
-            <div>Выносливость <b>{hud.stats.endurance}</b></div>
-            <div>Меткость <b>{hud.stats.accuracy}</b></div>
-            <div>Движение <b>{hud.stats.movement}</b></div>
-            <div>Реакция <b>{hud.stats.reaction}</b></div>
+            <div>Витривалість <b>{hud.stats.endurance}</b></div>
+            <div>Влучність <b>{hud.stats.accuracy}</b></div>
+            <div>Рух <b>{hud.stats.movement}</b></div>
+            <div>Реакція <b>{hud.stats.reaction}</b></div>
           </div>
           <div className="gc-row">
-            <button type="button" onClick={props.onResume}>ПРОДОЛЖИТЬ</button>
+            <button type="button" onClick={props.onResume}>ПРОДОВЖИТИ</button>
             <button type="button" onClick={() => window.location.reload()}>ЗАНОВО</button>
             <button type="button" onClick={props.onExit}>В МЕНЮ</button>
           </div>
@@ -371,25 +373,25 @@ export default function HudView(props: HudViewProps) {
       {/* victory */}
       {hud.victory && (
         <section className="gc-modal gc-victory">
-          <div className="gc-eyebrow"><span /> ЭВАКУАЦИЯ УСПЕШНА</div>
-          <h2>КОРИДОР ПРОЙДЕН</h2>
-          <p>Вы пережили облаву, учебный центр и долину Крежны.</p>
+          <div className="gc-eyebrow"><span /> ЕВАКУАЦІЯ ВДАЛАСЯ</div>
+          <h2>КОРИДОР ПРОЙДЕНО</h2>
+          <p>Ви пережили облаву, навчальний центр і східний напрямок.</p>
           <div className="gc-stats">
-            <div>Выносливость <b>{hud.stats.endurance}</b></div>
-            <div>Меткость <b>{hud.stats.accuracy}</b></div>
-            <div>Движение <b>{hud.stats.movement}</b></div>
-            <div>Реакция <b>{hud.stats.reaction}</b></div>
-            <div>Документов <b>{hud.docCount}</b></div>
+            <div>Витривалість <b>{hud.stats.endurance}</b></div>
+            <div>Влучність <b>{hud.stats.accuracy}</b></div>
+            <div>Рух <b>{hud.stats.movement}</b></div>
+            <div>Реакція <b>{hud.stats.reaction}</b></div>
+            <div>Документів <b>{hud.docCount}</b></div>
           </div>
           <div className="gc-row">
-            <button type="button" onClick={() => window.location.reload()}>ИГРАТЬ СНОВА</button>
+            <button type="button" onClick={() => window.location.reload()}>ГРАТИ ЗНОВУ</button>
             <button type="button" onClick={props.onExit}>В МЕНЮ</button>
           </div>
         </section>
       )}
 
       {!paused && !hud.victory && <ChatBox chat={chat} onSend={props.onSendChat} />}
-      <div className="gc-hint">WASD — движение • E — действие • C — присесть • Tab — документы • клик — захват мыши</div>
+      <div className="gc-hint">WASD — рух • E — дія • C — присісти • Tab — документи • клік — захоплення миші</div>
     </div>
   );
 }

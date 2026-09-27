@@ -2,6 +2,7 @@
 // GREY CORRIDOR — procedural humanoids + NPC AI state machines
 // ============================================================
 import * as THREE from 'three';
+import { camoTexture } from './textures';
 import { resolveCollision, losBlocked, type BoxCollider } from './world';
 import type { AnimState, ModelKind } from './types';
 
@@ -32,6 +33,12 @@ function limb(mat: THREE.Material, w: number, len: number): THREE.Group {
   return pivot;
 }
 
+let camoShared: THREE.Texture | null = null;
+function getCamo(): THREE.Texture {
+  camoShared ??= camoTexture();
+  return camoShared;
+}
+
 export function makeHumanoid(kind: ModelKind, seed = 1, armed = false): Humanoid {
   const g = new THREE.Group();
   const r = (n: number): number => {
@@ -43,8 +50,8 @@ export function makeHumanoid(kind: ModelKind, seed = 1, armed = false): Humanoid
   let bot: THREE.Material;
   let hat: THREE.Object3D | null = null;
   if (kind === 'officer') {
-    top = new THREE.MeshStandardMaterial({ color: '#2b3a55', roughness: 0.85 });
-    bot = new THREE.MeshStandardMaterial({ color: '#232a38', roughness: 0.9 });
+    top = new THREE.MeshStandardMaterial({ color: '#ffffff', map: getCamo(), roughness: 0.95 });
+    bot = new THREE.MeshStandardMaterial({ color: '#e8e8e0', map: getCamo(), roughness: 0.95 });
   } else if (kind === 'soldier') {
     top = new THREE.MeshStandardMaterial({ color: '#4a5238', roughness: 0.95 });
     bot = new THREE.MeshStandardMaterial({ color: '#3d4430', roughness: 0.95 });
@@ -70,13 +77,13 @@ export function makeHumanoid(kind: ModelKind, seed = 1, armed = false): Humanoid
   if (kind === 'officer' || kind === 'soldier') {
     const vest = new THREE.Mesh(
       new THREE.BoxGeometry(0.54, 0.42, 0.34),
-      new THREE.MeshStandardMaterial({ color: kind === 'officer' ? '#1c2436' : '#33392a', roughness: 1 }),
+      new THREE.MeshStandardMaterial({ color: kind === 'officer' ? '#3f4433' : '#33392a', roughness: 1 }),
     );
     vest.position.y = 1.22;
     vest.castShadow = true;
     g.add(vest);
     if (kind === 'officer') {
-      // fictional insignia band (plain yellow stripe, invented)
+      // TCC insignia band (yellow stripe)
       const band = new THREE.Mesh(
         new THREE.BoxGeometry(0.55, 0.07, 0.35),
         new THREE.MeshStandardMaterial({ color: '#c9a83a', roughness: 0.8 }),
@@ -110,7 +117,7 @@ export function makeHumanoid(kind: ModelKind, seed = 1, armed = false): Humanoid
       headG.add(cap);
     }
   } else if (kind === 'officer' || kind === 'instructor') {
-    const capMat = new THREE.MeshStandardMaterial({ color: kind === 'officer' ? '#1c2436' : '#2c4434', roughness: 0.9 });
+    const capMat = new THREE.MeshStandardMaterial({ color: kind === 'officer' ? '#3f4433' : '#2c4434', roughness: 0.9 });
     const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.18, 0.1, 10), capMat);
     cap.position.y = 0.3;
     headG.add(cap);

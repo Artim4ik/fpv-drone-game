@@ -3,7 +3,8 @@
 // All geometry is generated in code. Collision = XZ AABBs.
 // ============================================================
 import * as THREE from 'three';
-import { dirtTexture, facadeTexture, grassTexture, pavementTexture, roadTexture, ruinTexture, signTexture, softDotTexture } from './textures';
+import { brickTexture, dirtTexture, facadeTexture, grassTexture, pavementTexture, plankTexture, plateUATexture, roadTexture, ruinTexture, scorchDecalTexture, signTexture, softDotTexture, uaFlagTexture } from './textures';
+import { photoTexture } from './assets';
 import type { DocKind } from './types';
 
 export interface BoxCollider {
@@ -131,6 +132,7 @@ function mulberry(seed: number): () => number {
 const geoBox = new THREE.BoxGeometry(1, 1, 1);
 const geoCyl = new THREE.CylinderGeometry(0.5, 0.5, 1, 10);
 const geoCone = new THREE.ConeGeometry(0.5, 1, 8);
+const geoSphere = new THREE.SphereGeometry(1, 10, 8);
 
 function box(mat: THREE.Material, sx: number, sy: number, sz: number, x: number, y: number, z: number, ry = 0): THREE.Mesh {
   const m = new THREE.Mesh(geoBox, mat);
@@ -166,14 +168,16 @@ function setBeacon(b: Beacon, id: string, x: number, y: number, z: number, visib
 
 // ============================================================ CITY
 const SHOPS: Array<[string, string]> = [
-  ['ПРОДУКТЫ', '#1f4d3a'],
+  ['ПРОДУКТИ', '#1f4d3a'],
   ['АПТЕКА', '#27556e'],
-  ['КАФЕ «СЕВЕР»', '#5c3a22'],
+  ['КАВА З СОБОЮ', '#5c3a22'],
   ['ПЕКАРНЯ', '#6e5227'],
-  ['РЕМОНТ ОБУВИ', '#444444'],
-  ['КИОСК', '#6e2742'],
-  ['ЦВЕТЫ', '#4a5c2a'],
-  ['БАНК КРЕЖНЫ', '#2a3a5c'],
+  ['РЕМОНТ ВЗУТТЯ', '#444444'],
+  ['КІОСК', '#6e2742'],
+  ['КВІТИ', '#4a5c2a'],
+  ['НОВА ПОШТА', '#8c2f26'],
+  ['РОЗЕТКА', '#2a6e3a'],
+  ['ОЩАДБАНК', '#2a3a5c'],
 ];
 
 function buildCity(): ZoneData {
@@ -188,8 +192,8 @@ function buildCity(): ZoneData {
   const ROADS = [-56, 0, 56];
   const ROAD_W = 10;
 
-  // ground base (asphalt-ish dirt under everything)
-  const groundMat = new THREE.MeshStandardMaterial({ map: dirtTexture(), roughness: 1 });
+  // ground base (Kyiv courtyards dirt)
+  const groundMat = new THREE.MeshStandardMaterial({ map: photoTexture('dirt', 20, 20, dirtTexture), roughness: 1 });
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(HALF * 2 + 60, HALF * 2 + 60), groundMat);
   ground.rotation.x = -Math.PI / 2;
   ground.position.y = -0.05;
@@ -257,6 +261,7 @@ function buildCity(): ZoneData {
   };
   const glassMat = new THREE.MeshStandardMaterial({ color: '#1c2228', roughness: 0.15, metalness: 0.7 });
   const tireMat = new THREE.MeshStandardMaterial({ color: '#141414', roughness: 0.9 });
+  const carPlates = [plateUATexture('АА 2210 КА'), plateUATexture('КА 7781 АА'), plateUATexture('АА 0456 КВ')];
 
   const buildCar = (burned: boolean): THREE.Group => {
     const car = new THREE.Group();
@@ -271,6 +276,10 @@ function buildCity(): ZoneData {
       wheel.position.set(wx, 0.33, wz);
       car.add(wheel);
     }
+    const plate = new THREE.Mesh(new THREE.PlaneGeometry(0.55, 0.14), new THREE.MeshBasicMaterial({ map: carPlates[Math.floor(rnd() * carPlates.length)] }));
+    plate.position.set(0, 0.55, -2.11);
+    plate.rotation.y = Math.PI;
+    car.add(plate);
     if (burned) {
       const scorch = box(new THREE.MeshStandardMaterial({ color: '#0a0a0a', roughness: 1 }), 1.9, 0.2, 4.3, 0, 1.0, 0);
       car.add(scorch);
@@ -283,22 +292,27 @@ function buildCity(): ZoneData {
   const buildTree = (x: number, z: number, s: number): void => {
     const t = new THREE.Group();
     const trunk = new THREE.Mesh(geoCyl, trunkMat);
-    trunk.scale.set(0.3 * s, 2.2 * s, 0.3 * s);
-    trunk.position.y = 1.1 * s;
+    trunk.scale.set(0.36 * s, 2.4 * s, 0.36 * s);
+    trunk.position.y = 1.2 * s;
     trunk.castShadow = true;
-    const c1 = new THREE.Mesh(geoCone, leafMat);
-    c1.scale.set(2.4 * s, 3.4 * s, 2.4 * s);
-    c1.position.y = 3.4 * s;
+    const c1 = new THREE.Mesh(geoSphere, leafMat);
+    c1.scale.set(1.9 * s, 1.7 * s, 1.9 * s);
+    c1.position.y = 3.1 * s;
     c1.castShadow = true;
-    t.add(trunk, c1);
+    const c2 = new THREE.Mesh(geoSphere, leafMat);
+    c2.scale.set(1.3 * s, 1.1 * s, 1.3 * s);
+    c2.position.set(0.7 * s, 2.4 * s, 0.4 * s);
+    c2.castShadow = true;
+    t.add(trunk, c1, c2);
     t.position.set(x, 0, z);
     group.add(t);
     addCollider(x, z, 0.5, 0.5);
   };
 
   const dumpMat = new THREE.MeshStandardMaterial({ color: '#2f4a3a', roughness: 0.9 });
-  const crateMat = new THREE.MeshStandardMaterial({ color: '#7a6248', roughness: 1 });
+  const crateMat = new THREE.MeshStandardMaterial({ map: photoTexture('wood', 1, 1, plankTexture), roughness: 1 });
   const fenceMat = new THREE.MeshStandardMaterial({ color: '#5c5a52', roughness: 0.9 });
+  const garageMat = new THREE.MeshStandardMaterial({ map: photoTexture('brick', 2, 1, brickTexture), roughness: 0.95 });
   const doorMat = new THREE.MeshStandardMaterial({ color: '#1e2126', roughness: 0.8 });
   const canopyMat = new THREE.MeshStandardMaterial({ color: '#4a4a48', roughness: 0.9 });
 
@@ -384,7 +398,7 @@ function buildCity(): ZoneData {
         for (let k = 0; k < 4; k++) {
           const px = ax + 6 + k * 7;
           const pz = az + 8;
-          const gar = box(fenceMat, 6, 2.6, 5, px, 1.3, pz);
+          const gar = box(garageMat, 6, 2.6, 5, px, 1.3, pz);
           group.add(gar);
           addCollider(px, pz, 6, 5);
         }
@@ -393,6 +407,15 @@ function buildCity(): ZoneData {
         wreck.rotation.y = 0.7;
         group.add(wreck);
         addCollider(cx + 8, cz + 6, 3.4, 3.4);
+        const scorch = new THREE.Mesh(
+          new THREE.PlaneGeometry(6, 6),
+          new THREE.MeshStandardMaterial({ map: photoTexture('scorch', 1, 1, scorchDecalTexture), roughness: 1, transparent: true, opacity: 0.85, depthWrite: false }),
+        );
+        scorch.rotation.x = -Math.PI / 2;
+        scorch.rotation.z = 0.7;
+        scorch.position.set(cx + 8, 0.04, cz + 6);
+        scorch.receiveShadow = true;
+        group.add(scorch);
       }
       // walk loop around block (sidewalk)
       const m = 2.2;
@@ -407,7 +430,7 @@ function buildCity(): ZoneData {
 
   // market row: stalls with canopies (nudged out of buildings)
   {
-    const stallWood = new THREE.MeshStandardMaterial({ color: '#6e5a40', roughness: 1 });
+    const stallWood = new THREE.MeshStandardMaterial({ map: photoTexture('wood', 1, 1, plankTexture), roughness: 1 });
     const stallCloth = new THREE.MeshStandardMaterial({ color: '#7a3a3a', roughness: 0.9 });
     const stallCloth2 = new THREE.MeshStandardMaterial({ color: '#3a5c7a', roughness: 0.9 });
     for (let sxi = 0; sxi < 4; sxi++) {
@@ -478,6 +501,15 @@ function buildCity(): ZoneData {
     lampLights.push(pl);
   }
 
+  // Khreshchatyk street plates on lamp poles near the center
+  const streetTex = signTexture('ВУЛ. ХРЕЩАТИК', '#2a3a5c');
+  for (const [px, pz, ry] of [[6.5, -28, Math.PI / 2], [6.5, 12, Math.PI / 2], [12, -6.5, 0], [-28, -6.5, 0]] as Array<[number, number, number]>) {
+    const plate = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 0.55), new THREE.MeshBasicMaterial({ map: streetTex, side: THREE.DoubleSide }));
+    plate.position.set(px, 3.4, pz);
+    plate.rotation.y = ry;
+    group.add(plate);
+  }
+
   // ground clutter: scattered paper scraps
   {
     const clutGeo = new THREE.PlaneGeometry(0.4, 0.3);
@@ -503,6 +535,30 @@ function buildCity(): ZoneData {
   shelter.position.set(8.5, 0, -24);
   group.add(shelter);
   addCollider(8.5, -24, 4.6, 1.8);
+  // prefabricated kiosks (Kyiv classic) near the bus stop
+  const kioskGlass = new THREE.MeshStandardMaterial({ color: '#20262c', roughness: 0.2, metalness: 0.5 });
+  const kioskRoof = new THREE.MeshStandardMaterial({ color: '#6e2742', roughness: 0.8 });
+  for (const [kx, kz, ry, label] of [[14.5, -17, 0.15, 'КІОСК'], [13.5, -31, -0.12, 'ТЮТЮН']] as Array<[number, number, number, string]>) {
+    const kp = new THREE.Vector3(kx, 0, kz);
+    nudgeOut(kp, colliders, 2.4);
+    const k = new THREE.Group();
+    k.add(box(garageMat, 3.2, 2.5, 2.6, 0, 1.25, 0));
+    k.add(box(kioskRoof, 3.6, 0.18, 3.0, 0, 2.6, 0));
+    const win = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 0.9), kioskGlass);
+    win.position.set(0, 1.6, 1.31);
+    k.add(win);
+    const ks = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 0.6), new THREE.MeshBasicMaterial({ map: signTexture(label, '#6e2742') }));
+    ks.position.set(0, 2.25, 1.32);
+    k.add(ks);
+    k.position.set(kp.x, 0, kp.z);
+    k.rotation.y = ry;
+    group.add(k);
+    addCollider(kp.x, kp.z, 3.4, 2.8);
+  }
+  const stopPlate = new THREE.Mesh(new THREE.PlaneGeometry(2.0, 0.5), new THREE.MeshBasicMaterial({ map: signTexture('ЗУПИНКА', '#27556e') }));
+  stopPlate.position.set(6.05, 2.2, -24);
+  stopPlate.rotation.y = -Math.PI / 2;
+  group.add(stopPlate);
 
   // traffic cars (animated in update)
   const traffic: Array<{ g: THREE.Group; s: number; speed: number }> = [];
@@ -532,13 +588,13 @@ function buildCity(): ZoneData {
   // document pickups
   const dotTex = softDotTexture();
   const pickupDefs: Array<[number, number, DocKind, string]> = [
-    [-28, -20, 'registration', 'Папка с бумагами'],
-    [24, 30, 'incomplete', 'Незаполненный бланк'],
-    [-80, 70, 'temp_pass', 'Пропуск в гаражах'],
-    [80, -72, 'civil_id', 'Чьё-то удостоверение'],
-    [30, -80, 'medical', 'Медсправка'],
-    [-70, -80, 'forged', 'Подозрительный свёрток'],
-    [78, 74, 'exemption', 'Запечатанный конверт'],
+    [-28, -20, 'registration', 'Тека з паперами'],
+    [24, 30, 'incomplete', 'Незаповнений бланк'],
+    [-80, 70, 'temp_pass', 'Перепустка в гаражах'],
+    [80, -72, 'civil_id', 'Чийсь паспорт'],
+    [30, -80, 'medical', 'Меддовідка'],
+    [-70, -80, 'forged', 'Підозрілий згорток'],
+    [78, 74, 'exemption', 'Запечатаний конверт'],
   ];
   const paperMat = new THREE.MeshStandardMaterial({ color: '#e8e2ce', roughness: 0.9, emissive: '#555540', emissiveIntensity: 0.4 });
   pickupDefs.forEach(([x, z, kind, label], id) => {
@@ -642,7 +698,7 @@ function buildTraining(): ZoneData {
   group.add(ground);
 
   // parade dirt square
-  const dirtMat = new THREE.MeshStandardMaterial({ map: dirtTexture(), roughness: 1 });
+  const dirtMat = new THREE.MeshStandardMaterial({ map: photoTexture('dirt', 6, 6, dirtTexture), roughness: 1 });
   const square = new THREE.Mesh(new THREE.PlaneGeometry(70, 50), dirtMat);
   square.rotation.x = -Math.PI / 2;
   square.position.set(0, 0, 40);
@@ -651,7 +707,7 @@ function buildTraining(): ZoneData {
 
   const wallMat = new THREE.MeshStandardMaterial({ color: '#8a8578', roughness: 0.95 });
   const roofMat = new THREE.MeshStandardMaterial({ color: '#4a4640', roughness: 1 });
-  const woodMat = new THREE.MeshStandardMaterial({ color: '#7a6248', roughness: 1 });
+  const woodMat = new THREE.MeshStandardMaterial({ map: photoTexture('wood', 1, 1, plankTexture), roughness: 1 });
   const metalMat = new THREE.MeshStandardMaterial({ color: '#3a4148', roughness: 0.6, metalness: 0.4 });
 
   const addCollider = (x: number, z: number, w: number, d: number): void => {
@@ -669,10 +725,10 @@ function buildTraining(): ZoneData {
   addCollider(22, 78, 14, 8);
   group.add(box(metalMat, 10, 3.4, 6, 22, 1.7, 92));
   addCollider(22, 92, 10, 6);
-  // flag pole with fictional banner (plain tricolor, invented)
+  // flag pole with Ukrainian colors
   const pole = box(metalMat, 0.25, 12, 0.25, 0, 6, 30);
   group.add(pole);
-  const bannerMat = new THREE.MeshStandardMaterial({ color: '#2f5c8c', roughness: 0.9, side: THREE.DoubleSide });
+  const bannerMat = new THREE.MeshStandardMaterial({ map: uaFlagTexture(), roughness: 0.9, side: THREE.DoubleSide });
   const banner = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 2), bannerMat);
   banner.position.set(1.8, 10.6, 30);
   group.add(banner);
@@ -847,7 +903,7 @@ function buildFrontline(): ZoneData {
   };
 
   // road along z
-  const roadMat = new THREE.MeshStandardMaterial({ map: dirtTexture(), roughness: 1 });
+  const roadMat = new THREE.MeshStandardMaterial({ map: photoTexture('dirt', 2, 40, dirtTexture), roughness: 1 });
   const road = new THREE.Mesh(new THREE.PlaneGeometry(9, HALF * 2), roadMat);
   road.rotation.x = -Math.PI / 2;
   road.position.set(10, 0.15, 0);
@@ -939,6 +995,17 @@ function buildFrontline(): ZoneData {
     sandbagLine(tx, tz - 1.8, len, 0);
   }
 
+  // scorch marks near trenches
+  const scorchMatF = new THREE.MeshStandardMaterial({ map: photoTexture('scorch', 1, 1, scorchDecalTexture), roughness: 1, transparent: true, opacity: 0.9, depthWrite: false });
+  for (const [sx, sz] of [[-30, 60], [35, 40], [-10, -20]] as Array<[number, number]>) {
+    const sm = new THREE.Mesh(new THREE.PlaneGeometry(7, 7), scorchMatF);
+    sm.rotation.x = -Math.PI / 2;
+    sm.rotation.z = rnd() * 3;
+    sm.position.set(sx + 3, terrainH(sx + 3, sz + 2) + 0.22, sz + 2);
+    sm.receiveShadow = true;
+    group.add(sm);
+  }
+
   // checkpoints with barrier + mast
   const mastMat = new THREE.MeshStandardMaterial({ color: '#6e2f28', roughness: 0.8 });
   for (const [cx, cz] of [[10, 60], [10, -60]] as Array<[number, number]>) {
@@ -950,7 +1017,7 @@ function buildFrontline(): ZoneData {
     group.add(box(mastMat, 0.2, 1.3, 0.2, cx - 2.5, cy + 0.65, cz));
     const mast = box(mastMat, 0.18, 7, 0.18, cx + 5, cy + 3.5, cz + 3);
     group.add(mast);
-    const flagm = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 1.4), new THREE.MeshStandardMaterial({ color: '#2f5c8c', side: THREE.DoubleSide, roughness: 0.9 }));
+    const flagm = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 1.4), new THREE.MeshStandardMaterial({ map: uaFlagTexture(), side: THREE.DoubleSide, roughness: 0.9 }));
     flagm.position.set(cx + 6.2, cy + 5.8, cz + 3);
     group.add(flagm);
   }

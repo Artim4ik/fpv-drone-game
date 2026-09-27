@@ -25,7 +25,8 @@ import {
   type PlayerStats,
   type Quality,
 } from './types';
-import { softDotTexture, targetFaceTexture } from './textures';
+import { softDotTexture, targetFaceTexture , glowTexture, muzzleTexture} from './textures';
+import { photoTexture } from './assets';
 import type { AnimState } from '../../shared/protocol';
 
 export interface GameOptions {
@@ -64,28 +65,28 @@ interface Particle {
 }
 
 const DIALOG = {
-  greet: ['— Документы, пожалуйста.', '— Где вы зарегистрированы?'],
-  checking: ['— Минуту… проверяем.', '— Стойте спокойно.'],
-  ok: ['— Всё в порядке. Можете идти.', '— Свободны. Не задерживайтесь на улице.'],
-  bad: ['— Этого недостаточно.', '— Без действительных документов — пройдёмте в машину.'],
-  forged: ['— Что это за… Печать не та.', '— Подделка. В машину. Сейчас же.'],
-  block: ['— Стоять. Проверка не окончена.', '— Ещё шаг — и поедете с нами.'],
-  grab: ['— Держи его!', '— В машину его!'],
+  greet: ['— Документи, будь ласка.', '— Де ви зареєстровані?'],
+  checking: ['— Хвилину… перевіряємо.', '— Стійте спокійно.'],
+  ok: ['— Все гаразд. Можете йти.', '— Вільні. Не затримуйтесь на вулиці.'],
+  bad: ['— Цього недостатньо.', '— Без дійсних документів — пройдемо до машини.'],
+  forged: ['— Що це за… Печатка не та.', '— Підробка. До машини. Негайно.'],
+  block: ['— Стояти. Перевірку не закінчено.', '— Ще крок — і поїдете з нами.'],
+  grab: ['— Тримай його!', '— До машини його!'],
 };
 
 const RIDE_SUBS = [
-  '— …база, это 0417, везём одного. Приём.',
-  '— Сиди тихо. Приедем — разберутся.',
-  'Двигатель гудит. Город плывёт за окном.',
-  '— …понял, к северным воротам. Конец связи.',
-  'Машина сворачивает. Впереди — КПП учебного центра.',
+  '— …база, це 0417, веземо одного. Прийом.',
+  '— Сиди тихо. Приїдемо — розберуться.',
+  'Двигун гуде. Місто пливе за вікном.',
+  '— …зрозумів, до північних воріт. Кінець зв’язку.',
+  'Машина звертає. Попереду — КПП навчального центру.',
 ];
 
 const CONVOY_SUBS = [
-  'Колонна идёт на север. Долина Крежны — 40 км.',
-  '— Не высовываться. Держим дистанцию.',
-  'Блокпост. Проверка. Шлагбаум поднимается…',
-  'Дальше — разбитые посёлки. Приготовиться.',
+  'Колона йде на схід. До позицій — 40 км.',
+  '— Не висовуватись. Тримаємо дистанцію.',
+  'Блокпост. Перевірка. Шлагбаум піднімається…',
+  'Далі — розбиті селища. Приготуватися.',
 ];
 
 export class Game {
@@ -219,6 +220,9 @@ export class Game {
   private flashes: Array<{ light: THREE.PointLight; sprite: THREE.Sprite; t: number }> = [];
   private sun!: THREE.DirectionalLight;
   private hemi!: THREE.HemisphereLight;
+  private skyMat!: THREE.ShaderMaterial;
+  private beaconGlow!: THREE.Sprite;
+  private fxT = 0;
   private fps = 60;
 
   private remotes = new Map<string, Remote>();
@@ -253,16 +257,23 @@ export class Game {
     this.sun.shadow.bias = -0.0006;
     this.hemi = new THREE.HemisphereLight('#cfd8e8', '#3a382f', 0.9);
     this.scene.add(this.sun, this.hemi, this.sun.target);
+    this.buildSky();
 
     this.initParticles();
     this.muzzleLight = new THREE.PointLight('#ffca6a', 0, 18, 1.8);
     this.scene.add(this.muzzleLight);
-    this.muzzleSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: softDotTexture(), color: '#ffcf7a', transparent: true, opacity: 0, depthWrite: false }));
+    this.muzzleSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: muzzleTexture(), color: '#ffcf7a', transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
     this.muzzleSprite.scale.set(1.4, 1.4, 1);
     this.scene.add(this.muzzleSprite);
+    this.beaconGlow = new THREE.Sprite(
+      new THREE.SpriteMaterial({ map: glowTexture(), color: '#5a8aff', transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }),
+    );
+    this.beaconGlow.scale.set(2.4, 2.4, 1);
+    this.beaconGlow.visible = false;
+    this.scene.add(this.beaconGlow);
     const tracerGeo = new THREE.BoxGeometry(0.06, 0.06, 1);
     for (let i = 0; i < 12; i++) {
-      const m = new THREE.Mesh(tracerGeo, new THREE.MeshBasicMaterial({ color: '#ffd27a', transparent: true, opacity: 0 }));
+      const m = new THREE.Mesh(tracerGeo, new THREE.MeshBasicMaterial({ color: '#ffdf9a', transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }));
       m.visible = false;
       this.scene.add(m);
       this.tracers.push(m);
@@ -292,6 +303,31 @@ export class Game {
   }
 
   // ================================================================ setup
+  private buildSky(): void {
+    this.skyMat = new THREE.ShaderMaterial({
+      side: THREE.BackSide,
+      depthWrite: false,
+      fog: false,
+      uniforms: {
+        top: { value: new THREE.Color('#2e3a55') },
+        mid: { value: new THREE.Color('#9aa3b5') },
+        bot: { value: new THREE.Color('#3a3630') },
+      },
+      vertexShader: 'varying vec3 vP;\nvoid main() {\n vP = position;\n gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);\n}',
+      fragmentShader: 'uniform vec3 top;\nuniform vec3 mid;\nuniform vec3 bot;\nvarying vec3 vP;\nvoid main() {\n float h = normalize(vP).y;\n vec3 c = h > 0.0 ? mix(mid, top, pow(clamp(h, 0.0, 1.0), 0.55)) : mix(mid, bot, pow(clamp(-h, 0.0, 1.0), 0.6));\n gl_FragColor = vec4(c, 1.0);\n}',
+    });
+    const sky = new THREE.Mesh(new THREE.SphereGeometry(760, 24, 16), this.skyMat);
+    sky.frustumCulled = false;
+    sky.renderOrder = -10;
+    this.scene.add(sky);
+  }
+
+  private setSky(top: string, mid: string, bot: string): void {
+    (this.skyMat.uniforms.top.value as THREE.Color).set(top);
+    (this.skyMat.uniforms.mid.value as THREE.Color).set(mid);
+    (this.skyMat.uniforms.bot.value as THREE.Color).set(bot);
+  }
+
   private initParticles(): void {
     this.pGeo = new THREE.BufferGeometry();
     const positions = new Float32Array(this.pCount * 3);
@@ -306,7 +342,7 @@ export class Game {
     this.pGeo.setAttribute('psize', new THREE.BufferAttribute(sizes, 1));
     const mat = new THREE.PointsMaterial({
       size: 0.35,
-      map: softDotTexture(),
+      map: photoTexture('sprite', 1, 1, softDotTexture),
       vertexColors: true,
       transparent: true,
       opacity: 0.9,
@@ -364,6 +400,34 @@ export class Game {
     if (dirty) posA.needsUpdate = true;
   }
 
+  private updateVanFx(dt: number): void {
+    const v = this.van;
+    this.audio.sirenLoop(v?.state === 'chase');
+    const bg = this.beaconGlow;
+    if (!v) {
+      bg.visible = false;
+      return;
+    }
+    const bOn = v.rig.beaconMat.emissiveIntensity > 0.4;
+    if (bOn && (this.chapter === 'city' || this.chapter === 'minibus')) {
+      const bp = new THREE.Vector3(0, 2.75, 1.8).applyAxisAngle(new THREE.Vector3(0, 1, 0), v.yaw).add(v.pos);
+      bg.position.copy(bp);
+      (bg.material as THREE.SpriteMaterial).opacity = 0.35 + Math.abs(Math.sin(this.time * 9)) * 0.5;
+      bg.visible = true;
+    } else {
+      bg.visible = false;
+    }
+    this.fxT += dt;
+    if (this.fxT > 0.05 && Math.abs(v.speed) > 0.5 && (this.chapter === 'city' || this.chapter === 'minibus')) {
+      this.fxT = 0;
+      const ex = new THREE.Vector3(-0.7, 0.45, -3.1).applyAxisAngle(new THREE.Vector3(0, 1, 0), v.yaw).add(v.pos);
+      this.spawnParticles(ex.x, ex.y, ex.z, 2, '#8a8a82', 1.1, 1.1, 1.5);
+      if (Math.abs(v.speed) > 6) {
+        this.spawnParticles(ex.x, 0.25, ex.z, 1, '#6e6a5e', 1.6, 0.7, 1);
+      }
+    }
+  }
+
   private fireTracer(a: THREE.Vector3, b: THREE.Vector3): void {
     let bi = 0;
     for (let i = 0; i < this.tracers.length; i++) {
@@ -387,12 +451,12 @@ export class Game {
     this.spawnParticles(p.x, p.y + 1, p.z, big ? 20 : 8, '#2a2a26', 3, big ? 2.2 : 1.2, 4);
     const light = new THREE.PointLight('#ff9a4a', big ? 120 : 40, big ? 40 : 20, 1.8);
     light.position.copy(p).add(new THREE.Vector3(0, 2, 0));
-    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: softDotTexture(), color: '#ffcf8a', transparent: true, opacity: 1, depthWrite: false }));
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: photoTexture('particle', 1, 1, softDotTexture), color: '#ffcf8a', transparent: true, opacity: 1, depthWrite: false }));
     sprite.position.copy(light.position);
     sprite.scale.set(big ? 8 : 4, big ? 8 : 4, 1);
     this.scene.add(light, sprite);
     this.flashes.push({ light, sprite, t: 0 });
-    this.audio.explosion(this.pos.distanceTo(p));
+    this.audio.explosionReal(this.pos.distanceTo(p));
     this.shake = Math.min(1, this.shake + (big ? 0.5 : 0.2));
   }
 
@@ -438,6 +502,7 @@ export class Game {
   }
 
   private loadChapter(ch: ChapterId): void {
+    this.audio.sirenLoop(false);
     // minibus ride reuses the live city scene (van, officers, pedestrians)
     if (ch !== 'minibus') this.clearActors();
     this.chapter = ch;
@@ -447,6 +512,11 @@ export class Game {
     if (ch === 'city') {
       this.scene.background = new THREE.Color('#9aa3b5');
       this.scene.fog = new THREE.FogExp2('#9aa3b5', 0.0075);
+      this.setSky('#2e3a55', '#9aa3b5', '#3a3630');
+      this.sun.color.set('#ffb464');
+      this.sun.intensity = 2.0;
+      this.sun.position.set(-90, 38, 30);
+      this.hemi.intensity = 0.85;
       this.sun.color.set('#ffd9a8');
       this.sun.intensity = 2.0;
       this.hemi.intensity = 0.85;
@@ -461,21 +531,22 @@ export class Game {
       this.van.events.onDismount = () => {
         this.officerState = 'exiting';
         this.officerT = 0;
-        this.showMessage('Патрульные идут к вам…', 2.5);
+        this.showMessage('Патрульні йдуть до вас…', 2.5);
       };
       this.van.events.onDoorsOpened = () => {
         this.audio.doorVan();
+        this.audio.doorSlide();
         this.officerState = 'exiting';
         this.officerT = 0;
       };
       this.van.events.onCheckReady = () => this.beginDialog();
       this.van.events.onChaseStart = () => {
-        this.showMessage('Погоня! Отрывайтесь от патруля!', 3);
+        this.showMessage('Погоня! Відривайтеся від патруля!', 3);
         this.audio.whistle();
         this.audio.shout();
       };
       this.van.events.onGiveUp = () => {
-        this.showMessage('Патруль отстал. Затаитесь.', 3);
+        this.showMessage('Патруль відстав. Затаіться.', 3);
         this.encounter = 'none';
         this.officerState = 'return';
       };
@@ -519,7 +590,7 @@ export class Game {
               if (this.van.state === 'patrol' || this.van.state === 'notice' || this.van.state === 'stakeout') {
                 this.van.suspicion = 1;
                 this.audio.whistle();
-                this.showMessage('Пеший патруль заметил вас!', 2.5);
+                this.showMessage('Піший патруль помітив вас!', 2.5);
               }
             };
             fp.events.onSpotted = () => {
@@ -535,7 +606,7 @@ export class Game {
           }
         }
       }
-      this.objective = { title: 'Найдите документы', detail: 'Осмотрите район: дворы, гаражи, машины. [E] — взять', progress: `0/${this.zone.pickups.length}` };
+      this.objective = { title: 'Знайдіть документи', detail: 'Огляньте район: двори, гаражі, машини. [E] — взяти', progress: `0/${this.zone.pickups.length}` };
     } else if (ch === 'minibus') {
       // keep city visuals (ride through the city)
       this.ensureRideCast();
@@ -544,12 +615,17 @@ export class Game {
       this.rideT = 0;
       this.rideSub = 0;
       this.dialogLines = [RIDE_SUBS[0]];
-      this.objective = { title: 'Вас везут…', detail: 'Учебный центр «Северный»', progress: '' };
+      this.objective = { title: 'Вас везуть…', detail: 'Навчальний центр «Десна»', progress: '' };
       this.van?.startTransport();
       this.officerState = 'invan';
     } else if (ch === 'training') {
       this.scene.background = new THREE.Color('#a8bfd4');
       this.scene.fog = new THREE.FogExp2('#a8bfd4', 0.006);
+      this.setSky('#3a6a9a', '#a8bfd4', '#4a4a40');
+      this.sun.color.set('#fff2d8');
+      this.sun.intensity = 2.4;
+      this.sun.position.set(-40, 90, 30);
+      this.hemi.intensity = 1.0;
       this.sun.color.set('#fff2dc');
       this.sun.intensity = 2.4;
       this.hemi.intensity = 1.0;
@@ -566,19 +642,29 @@ export class Game {
       this.exCp = 0;
       this.exT = 0;
       this.setupExercise();
-      this.showMessage('Учебный центр «Северный». Слушайте инструктора.', 4);
+      this.showMessage('Навчальний центр «Десна». Слухайте інструктора.', 4);
     } else if (ch === 'transport') {
       this.scene.background = new THREE.Color('#8a94a8');
       this.scene.fog = new THREE.FogExp2('#8a94a8', 0.008);
+      this.setSky('#3a4255', '#8a94a8', '#33302a');
+      this.sun.color.set('#e8d0b0');
+      this.sun.intensity = 1.4;
+      this.sun.position.set(-60, 60, 40);
+      this.hemi.intensity = 0.9;
       this.zone = this.world.load(this.scene, 'transport');
       this.rideT = 0;
       this.rideSub = 0;
       this.dialogLines = [CONVOY_SUBS[0]];
-      this.objective = { title: 'Колонна на север', detail: 'Долина Крежны', progress: '' };
+      this.objective = { title: 'Колона на схід', detail: 'Східний напрямок', progress: '' };
       this.pos.set(0, 0, 10);
     } else {
       this.scene.background = new THREE.Color('#7d8894');
       this.scene.fog = new THREE.FogExp2('#7d8894', 0.009);
+      this.setSky('#4a525e', '#7d8894', '#2e2b24');
+      this.sun.color.set('#cfd4dc');
+      this.sun.intensity = 1.15;
+      this.sun.position.set(30, 80, -20);
+      this.hemi.intensity = 1.05;
       this.sun.color.set('#d8dce4');
       this.sun.intensity = 1.6;
       this.hemi.intensity = 0.9;
@@ -597,7 +683,7 @@ export class Game {
       this.crateTaken = false;
       this.carrying = false;
       this.setupMission();
-      this.showMessage('Долина Крежны. Держитесь команды.', 4);
+      this.showMessage('Східний напрямок. Тримайтеся команди.', 4);
     }
   }
 
@@ -651,10 +737,10 @@ export class Game {
     const b = this.bestDoc();
     this.selDoc = b ? this.docs.indexOf(b) : 0;
     this.dialogOptions = [
-      b ? `Показать: ${b.title}` : 'Документов нет',
-      'Другой документ',
-      'Попытаться уйти',
-      'Бежать!',
+      b ? `Показати: ${b.title}` : 'Документів немає',
+      'Інший документ',
+      'Спробувати піти',
+      'Тікати!',
     ];
   }
 
@@ -665,7 +751,7 @@ export class Game {
       const d = this.docs[this.selDoc];
       this.lastShownDoc = d ?? null;
       if (!d) {
-        this.dialogLines = ['— Нет документов? Тогда проедем с нами.', '— В машину.'];
+        this.dialogLines = ['— Немає документів? Тоді проїдемо з нами.', '— До машини.'];
         this.audio.stingDetained();
         this.dialogOptions = [];
         window.setTimeout(() => this.grabPlayer(), 1400);
@@ -684,7 +770,7 @@ export class Game {
           window.setTimeout(() => this.grabPlayer(), 1600);
         }, 2200);
       } else if (d.kind === 'summons') {
-        this.dialogLines = ['— Это повестка, а не документы.', '— Раз она у тебя — поедешь с нами.'];
+        this.dialogLines = ['— Це повістка, а не документи.', '— Раз вона в тебе — поїдеш з нами.'];
         this.audio.stingDetained();
         this.dialogOptions = [];
         window.setTimeout(() => this.grabPlayer(), 1600);
@@ -696,17 +782,17 @@ export class Game {
       this.dialogOptions = [];
     } else if (i === 1) {
       if (this.docs.length === 0) {
-        this.dialogLines = ['— Нет документов? Тогда проедем с нами.'];
+        this.dialogLines = ['— Немає документів? Тоді проїдемо з нами.'];
         return;
       }
       this.selDoc = (this.selDoc + 1) % this.docs.length;
       const d = this.docs[this.selDoc];
-      this.dialogOptions[0] = `Показать: ${d.title}`;
+      this.dialogOptions[0] = `Показати: ${d.title}`;
       this.pushHud();
     } else if (i === 2) {
       this.leaveAttempts++;
       if (this.leaveAttempts >= 2) {
-        this.dialogLines = ['— Я сказал — стоять!', '— Держи его!'];
+        this.dialogLines = ['— Я сказав — стояти!', '— Тримай його!'];
         this.audio.whistle();
         window.setTimeout(() => this.grabPlayer(), 900);
         this.dialogOptions = [];
@@ -727,7 +813,7 @@ export class Game {
   private releasePlayer(): void {
     if (this.chapter !== 'city') return;
     this.encounter = 'released';
-    this.showMessage('Проверка пройдена. Патруль уходит.', 3);
+    this.showMessage('Перевірку пройдено. Патруль іде.', 3);
     this.officerState = 'return';
     this.van?.release();
     this.surviveActive = true;
@@ -738,9 +824,9 @@ export class Game {
       this.opts.onDocs([...this.docs]);
       this.summonsT = 150;
       this.audio.radioBlip();
-      window.setTimeout(() => this.showMessage('Вам вручили повестку. Явиться на участок!', 4), 2600);
+      window.setTimeout(() => this.showMessage('Вам вручили повістку. З’явитися на дільницю!', 4), 2600);
     }
-    this.objective = { title: 'Переждите облаву', detail: 'Не попадайтесь патрулю на глаза', progress: `${Math.floor(this.surviveNeed - this.survivedT)}с` };
+    this.objective = { title: 'Перечекайте облаву', detail: 'Не потрапляйте патрулю на очі', progress: `${Math.floor(this.surviveNeed - this.survivedT)}с` };
     window.setTimeout(() => {
       if (this.encounter === 'released') this.encounter = 'none';
     }, 2500);
@@ -760,7 +846,7 @@ export class Game {
   private detainPlayer(): void {
     if (this.detained) return;
     this.detained = true;
-    this.showMessage('Вас задержали.', 3);
+    this.showMessage('Вас затримали.', 3);
     this.fadeTo(() => this.loadChapter('minibus'));
   }
 
@@ -769,7 +855,7 @@ export class Game {
     this.officerState = 'stagger';
     this.officerT = 0;
     this.heat++;
-    this.showMessage('Вы вырвались! Бегите!', 3);
+    this.showMessage('Ви вирвалися! Тікайте!', 3);
     this.van?.startChase();
   }
 
@@ -782,21 +868,21 @@ export class Game {
     this.exFail = 0;
     const z = this.zone;
     if (this.exIdx === 0) {
-      this.objective = { title: 'Упражнение 1: бег', detail: 'Пройдите 6 контрольных точек по кругу за 75 сек', progress: '0/6' };
+      this.objective = { title: 'Вправа 1: біг', detail: 'Пройдіть 6 контрольних точок по колу за 75 с', progress: '0/6' };
       const p = z.route[0];
       this.world.setBeaconVisible(0, 'cp', p.x, 1, p.z, true);
       this.instructor.group.position.set(z.route[0].x + 3, 0, z.route[0].z + 3);
     } else if (this.exIdx === 1) {
-      this.objective = { title: 'Упражнение 2: полоса препятствий', detail: 'Vault: [Space] у стенки • Низкая планка: [C] • Канат: держать [E]', progress: '0/4' };
+      this.objective = { title: 'Вправа 2: смуга перешкод', detail: 'Стрибок: [Space] біля стінки • Низька планка: [C] • Канат: тримати [E]', progress: '0/4' };
       this.world.setBeaconVisible(0, 'ob', -24, 1, -62, true);
       this.instructor.group.position.set(-28, 0, -58);
     } else if (this.exIdx === 2) {
-      this.objective = { title: 'Упражнение 3: стрельба', detail: 'Возьмите винтовку на столе [E], поразите 8 мишеней', progress: '0/8' };
+      this.objective = { title: 'Вправа 3: стрільба', detail: 'Візьміть гвинтівку на столі [E], влучте у 8 мішеней', progress: '0/8' };
       this.world.setBeaconVisible(0, 'gun', -14, 1, -78, true);
       this.instructor.group.position.set(-14, 0, -74);
       this.spawnRangeTargets(8);
     } else {
-      this.objective = { title: 'Финальная оценка', detail: '3 точки + 5 мишеней за 120 сек. Винтовка с собой', progress: '' };
+      this.objective = { title: 'Фінальна оцінка', detail: '3 точки + 5 мішеней за 120 с. Гвинтівка із собою', progress: '' };
       this.setArmed(true);
       this.ammo = 30;
       this.reserve = 120;
@@ -841,7 +927,7 @@ export class Game {
         if (this.exCp >= z.route.length) {
           this.stats.endurance = Math.min(100, this.stats.endurance + 18);
           this.stats.stamina = Math.min(100, this.stats.stamina + 14);
-          this.nextExercise('Бег сдан! Выносливость повышена.');
+          this.nextExercise('Біг здано! Витривалість підвищено.');
           return;
         }
         const np = z.route[this.exCp];
@@ -854,7 +940,7 @@ export class Game {
         this.exCp = 0;
         const fp = z.route[0];
         this.world.setBeaconVisible(0, 'cp', fp.x, 1, fp.z, true);
-        this.showMessage('Норматив провален. Ещё раз!', 3);
+        this.showMessage('Норматив провалено. Ще раз!', 3);
       }
     } else if (this.exIdx === 1) {
       const gates = [
@@ -867,15 +953,15 @@ export class Game {
       const d = Math.hypot(this.pos.x - g.x, this.pos.z - g.z);
       if (g.need === 'vault') {
         if (d < 2.2 && this.vaultT > 0) this.passGate();
-        else if (d < 2.2) this.prompt = '[Space] — перелезть';
+        else if (d < 2.2) this.prompt = '[Space] — перелізти';
       } else if (g.need === 'crouch') {
         if (d < 2 && this.pos.z < -62 && this.crouch) this.passGate();
-        else if (d < 4) this.prompt = 'Пригнитесь [C] и пройдите под планкой';
+        else if (d < 4) this.prompt = 'Пригніться [C] і пройдіть під планкою';
       } else if (g.need === 'pass') {
         if (d < 2) this.passGate();
       } else {
         if (d < 2.4) {
-          this.prompt = 'Держите [E] — взобраться';
+          this.prompt = 'Тримайте [E] — вилізти';
           if (this.keys.has('KeyE')) {
             this.exFail += dt;
             if (this.exFail > 2) {
@@ -894,7 +980,7 @@ export class Game {
       if (!this.hasRifle) {
         const d = Math.hypot(this.pos.x + 14, this.pos.z + 78);
         if (d < 2.6) {
-          this.prompt = '[E] — взять винтовку';
+          this.prompt = '[E] — взяти гвинтівку';
           if (this.keys.has('KeyE') && !this.eHeld) {
             this.eHeld = true;
             this.hasRifle = true;
@@ -903,7 +989,7 @@ export class Game {
             this.reserve = 300;
             this.audio.pickup();
             this.world.hideBeacons();
-            this.showMessage('Поразите все мишени. ПКМ — прицелиться.', 3);
+            this.showMessage('Влучте в усі мішені. ПКМ — прицілитись.', 3);
           }
         }
       } else {
@@ -915,7 +1001,7 @@ export class Game {
           this.stats.handling = Math.min(100, this.stats.handling + 12);
           this.shotsFired = 0;
           this.shotsHit = 0;
-          this.nextExercise('Стрельба сдана! Меткость повышена.');
+          this.nextExercise('Стрільбу здано! Влучність підвищено.');
         }
       }
     } else {
@@ -937,7 +1023,7 @@ export class Game {
           this.stats.reaction = Math.min(100, this.stats.reaction + 15);
           this.stats.movement = Math.min(100, this.stats.movement + 12);
           storeSave({ stats: this.stats, chapter: 'transport', docsFound: this.docs.length, bestEval: Math.round(this.exT) });
-          this.showMessage('Оценка сдана! Получите снаряжение.', 3);
+          this.showMessage('Оцінку здано! Отримайте спорядження.', 3);
           this.audio.missionOk();
           this.fadeTo(() => this.loadChapter('transport'));
           return;
@@ -947,7 +1033,7 @@ export class Game {
         this.exT = 0;
         this.exCp = 0;
         this.spawnRangeTargets(5);
-        this.showMessage('Время вышло. Ещё раз!', 3);
+        this.showMessage('Час вийшов. Ще раз!', 3);
       }
     }
     // instructor faces player
@@ -963,7 +1049,7 @@ export class Game {
     this.stats.movement = Math.min(100, this.stats.movement + 4);
     if (this.exCp >= 4) {
       this.stats.movement = Math.min(100, this.stats.movement + 8);
-      this.nextExercise('Полоса пройдена!');
+      this.nextExercise('Смугу пройдено!');
     }
   }
 
@@ -980,20 +1066,20 @@ export class Game {
     this.world.hideBeacons();
     const z = this.zone;
     if (this.mission === 0) {
-      this.objective = { title: 'Миссия 1: передовой пост', detail: 'Двигайтесь к посту. Осторожно — противник в посёлке', progress: '' };
+      this.objective = { title: 'Місія 1: передовий пост', detail: 'Рухайтеся до посту. Обережно — противник у селищі', progress: '' };
       this.world.setBeaconVisible(0, 'post', 0, z.groundY(0, 120), 120, true);
       this.spawnHostiles(2);
     } else if (this.mission === 1) {
-      this.objective = { title: 'Миссия 2: припасы', detail: 'Найдите ящик в посёлке [E], отнесите на пост', progress: '' };
+      this.objective = { title: 'Місія 2: припаси', detail: 'Знайдіть ящик у селищі [E], віднесіть на пост', progress: '' };
       this.world.setBeaconVisible(0, 'crate', this.cratePos.x, z.groundY(this.cratePos.x, this.cratePos.z), this.cratePos.z, true);
       this.spawnHostiles(2);
     } else if (this.mission === 2) {
-      this.objective = { title: 'Миссия 3: оборона', detail: 'Удерживайте пост 90 секунд', progress: '90с' };
+      this.objective = { title: 'Місія 3: оборона', detail: 'Утримуйте пост 90 секунд', progress: '90с' };
       this.defendT = 90;
       this.wavesSpawned = 0;
       this.world.setBeaconVisible(0, 'post', 0, z.groundY(0, 120), 120, true);
     } else {
-      this.objective = { title: 'Эвакуация', detail: 'Отходите к точке эвакуации', progress: '' };
+      this.objective = { title: 'Евакуація', detail: 'Відходьте до точки евакуації', progress: '' };
       this.world.setBeaconVisible(0, 'evac', this.evacPos.x, z.groundY(this.evacPos.x, this.evacPos.z), this.evacPos.z, true);
     }
     this.net.sendEvent('objective', { title: this.objective.title, detail: this.objective.detail });
@@ -1048,14 +1134,14 @@ export class Game {
       if (Math.hypot(this.pos.x - 0, this.pos.z - 120) < 6) {
         this.mission = 1;
         this.audio.missionOk();
-        this.showMessage('Пост достигнут. Новая задача.', 3);
+        this.showMessage('Пост досягнуто. Нове завдання.', 3);
         this.setupMission();
       }
     } else if (this.mission === 1) {
       if (!this.crateTaken) {
         const d = Math.hypot(this.pos.x - this.cratePos.x, this.pos.z - this.cratePos.z);
         if (d < 3) {
-          this.prompt = '[E] — взять ящик с припасами';
+          this.prompt = '[E] — взяти ящик із припасами';
           if (this.keys.has('KeyE') && !this.eHeld) {
             this.eHeld = true;
             this.crateTaken = true;
@@ -1063,7 +1149,7 @@ export class Game {
             this.setArmed(false);
             this.audio.pickup();
             this.world.setBeaconVisible(0, 'post', 0, z.groundY(0, 120), 120, true);
-            this.objective.detail = 'Отнесите ящик на пост';
+            this.objective.detail = 'Віднесіть ящик на пост';
           }
         }
       } else if (Math.hypot(this.pos.x - 0, this.pos.z - 120) < 6) {
@@ -1072,7 +1158,7 @@ export class Game {
         this.reserve = 120;
         this.mission = 2;
         this.audio.missionOk();
-        this.showMessage('Припасы доставлены. Приготовиться к обороне!', 3);
+        this.showMessage('Припаси доставлено. Готуватися до оборони!', 3);
         this.setupMission();
       }
     } else if (this.mission === 2) {
@@ -1087,7 +1173,7 @@ export class Game {
       if (this.defendT <= 0) {
         this.mission = 3;
         this.audio.missionOk();
-        this.showMessage('Пост удержан! Отходите.', 3);
+        this.showMessage('Пост утримано! Відходьте.', 3);
         this.setupMission();
       }
     } else {
@@ -1100,7 +1186,7 @@ export class Game {
     }
     // resupply at post
     if (Math.hypot(this.pos.x, this.pos.z - 120) < 5 && this.reserve < 60 && this.armed) {
-      this.prompt = '[E] — пополнить боеприпасы';
+      this.prompt = '[E] — поповнити боєприпаси';
       if (this.keys.has('KeyE') && !this.eHeld) {
         this.eHeld = true;
         this.reserve = 120;
@@ -1120,7 +1206,7 @@ export class Game {
       this.health = 0;
       this.dead = true;
       this.deadT = 0;
-      this.showMessage('Вы ранены. Эвакуация к посту…', 3);
+      this.showMessage('Вас поранено. Евакуація до посту…', 3);
     }
   }
 
@@ -1334,7 +1420,7 @@ export class Game {
         this.spawnParticles(end.x, end.y, end.z, 6, '#7a1a1a', 3, 0.5);
         if (killed) {
           this.kills++;
-          this.showMessage(`Противник уничтожен (${this.kills})`, 1.6);
+          this.showMessage(`Противника знищено (${this.kills})`, 1.6);
           this.net.sendEvent('kill', { kills: this.kills });
         }
       } else {
@@ -1386,8 +1472,8 @@ export class Game {
         this.audio.pickup();
         this.showMessage(`Найдено: ${doc.title}`, 2.5);
         this.objective.progress = `${this.docs.length}/${this.zone.pickups.length}`;
-        if (this.docs.length >= 1 && this.objective.title === 'Найдите документы') {
-          this.objective = { title: 'Патруль в районе', detail: 'Не бегайте рядом с микроавтобусом. Документы: [Tab]', progress: `${this.docs.length} док.` };
+        if (this.docs.length >= 1 && this.objective.title === 'Знайдіть документи') {
+          this.objective = { title: 'Патруль у районі', detail: 'Не бігайте поруч із мікроавтобусом. Документи: [Tab]', progress: `${this.docs.length} док.` };
         }
         return;
       }
@@ -1399,7 +1485,7 @@ export class Game {
         this.eHeld = true;
         this.summonsT = 0;
         this.world.setBeaconVisible(1, 'office', 0, -50, 0, false);
-        this.showMessage('На участке вас уже ждали…', 3);
+        this.showMessage('На дільниці на вас уже чекали…', 3);
         this.audio.stingDetained();
         this.detainPlayer();
         return;
@@ -1418,13 +1504,13 @@ export class Game {
 
   private scriptedFinalCheck(): void {
     // patrol was waiting: force encounter near station
-    this.showMessage('Патруль уже здесь…', 2.5);
+    this.showMessage('Патруль уже тут…', 2.5);
     if (this.van) {
       this.van.pos.set(14, 0, -10);
       this.van.state = 'slow';
       this.van.suspicion = 1;
     }
-    this.objective = { title: 'Облава на остановке', detail: 'Патруль требует проверки', progress: '' };
+    this.objective = { title: 'Облава на зупинці', detail: 'Патруль вимагає перевірки', progress: '' };
     this.audio.stingSuspicion();
   }
 
@@ -1527,6 +1613,7 @@ export class Game {
     this.sun.target.position.set(this.pos.x, 0, this.pos.z);
     this.sun.target.updateMatrixWorld();
     z.update(dt, this.time);
+    this.updateVanFx(dt);
     this.updateParticles(dt);
     this.shake = Math.max(0, this.shake - dt * 2.2);
   }
@@ -1682,7 +1769,7 @@ export class Game {
     const blocked = losBlocked(this.van.pos.x, this.van.pos.z, this.pos.x, this.pos.z, z.colliders);
     const inCover = nearCover(this.pos.x, this.pos.z, z.colliders);
     const hidden = this.crouch && blocked && (inCover || vDist > 30);
-    if (hidden && this.van.state !== 'chase') this.prompt = 'ВЫ СКРЫТЫ';
+    if (hidden && this.van.state !== 'chase') this.prompt = 'ВАС НЕ ВИДНО';
     const running = this.moveSpeed > 5;
     this.van.aggression = Math.min(2.5, 1 + this.heat * 0.4 + (this.summonsT > 0 ? 0.5 : 0));
     if (this.van.state === 'chase' && this.moveSpeed > 0.5) {
@@ -1703,7 +1790,7 @@ export class Game {
       if (this.hornCd <= 0) {
         this.hornCd = 2.5;
         this.audio.horn();
-        this.showMessage('Бусик прижал!', 1.6);
+        this.showMessage('Бусик притиснув!', 1.6);
       }
     }
 
@@ -1727,7 +1814,7 @@ export class Game {
     if (this.van.state === 'notice' || this.van.state === 'slow') {
       this.encounter = this.encounter === 'dialog' || this.encounter === 'struggle' ? this.encounter : 'suspicion';
       if (this.encounter === 'suspicion' && this.van.suspicion > 0.9) {
-        this.dialogLines = ['Патруль обратил на вас внимание…'];
+        this.dialogLines = ['Патруль звернув на вас увагу…'];
       }
     } else if (this.van.state === 'patrol' && this.encounter === 'suspicion' && this.officerState !== 'escort') {
       this.encounter = 'none';
@@ -1753,7 +1840,7 @@ export class Game {
         this.officerState = 'return';
         this.encounter = 'none';
         this.dialogLines = [];
-        this.showMessage('Патруль отстал. Затаитесь.', 3);
+        this.showMessage('Патруль відстав. Затаіться.', 3);
       }
     } else {
       this.dismountLostT = 0;
@@ -1778,7 +1865,7 @@ export class Game {
         if (d < bw) bw = d;
       }
       if (bw < 324) {
-        this.showMessage('Прохожий: «Тікай! Бусик!»', 2.5);
+        this.showMessage('Перехожий: «Тікай! Бусик!»', 2.5);
         this.audio.shout();
       }
     }
@@ -1798,11 +1885,11 @@ export class Game {
       if (this.van.state === 'patrol' || this.van.state === 'leave') {
         this.survivedT += dt;
         const left = Math.max(0, Math.ceil(this.surviveNeed - this.survivedT));
-        this.objective = { title: 'Переждите облаву', detail: 'Не попадайтесь патрулю на глаза', progress: `${left}с` };
+        this.objective = { title: 'Перечекайте облаву', detail: 'Не потрапляйте патрулю на очі', progress: `${left}с` };
         if (this.survivedT >= this.surviveNeed && !this.stationDone) {
-          this.objective = { title: 'Уходите из района', detail: 'Доберитесь до автобусной остановки [E]', progress: '' };
+          this.objective = { title: 'Ідіть із району', detail: 'Дістаньтеся автобусної зупинки [E]', progress: '' };
           this.world.setBeaconVisible(0, 'bus', 8.5, 1, -24, true);
-          this.showMessage('Путь свободен. К остановке!', 3);
+          this.showMessage('Шлях вільний. До зупинки!', 3);
         }
       }
     }
@@ -1812,19 +1899,19 @@ export class Game {
       const office = this.officePos;
       this.world.setBeaconVisible(1, 'office', office.x, 1, office.z, true);
       this.objective = {
-        title: 'Повестка: явиться на участок',
-        detail: `Участок ТИД №7 отмечен. Осталось ${Math.max(0, Math.ceil(this.summonsT))}с — или не являйтесь и прячьтесь`,
+        title: 'Повістка: з’явитися на дільницю',
+        detail: `Дільниця ТЦК №7 позначена. Залишилось ${Math.max(0, Math.ceil(this.summonsT))}с — або не з’являйтеся і ховайтеся`,
         progress: `${Math.max(0, Math.ceil(this.summonsT))}с`,
       };
       if (Math.hypot(this.pos.x - office.x, this.pos.z - office.z) < 3.5) {
-        this.prompt = '[E] — зайти на участок';
+        this.prompt = '[E] — зайти на дільницю';
       }
       if (this.summonsT <= 0) {
         this.heat += 2;
         this.world.setBeaconVisible(1, 'office', 0, -50, 0, false);
-        this.showMessage('Неявка по повестке. Объявлен розыск!', 4);
+        this.showMessage('Неявка за повісткою. Оголошено розшук!', 4);
         this.audio.siren();
-        this.objective = { title: 'Розыск', detail: 'Патрули ищут именно вас. Доберитесь до остановки', progress: '' };
+        this.objective = { title: 'Розшук', detail: 'Патрулі шукають саме вас. Дістаньтеся зупинки', progress: '' };
       }
     }
     // pickup prompt
@@ -1834,7 +1921,7 @@ export class Game {
       }
     }
     if (this.survivedTDone() && this.surviveActive && !this.stationDone && Math.hypot(this.pos.x - 8.5, this.pos.z + 24) < 3) {
-      this.prompt = '[E] — сесть на автобус';
+      this.prompt = '[E] — сісти в автобус';
     }
   }
 
@@ -2027,21 +2114,20 @@ export class Game {
     const shakeY = (Math.random() - 0.5) * this.shake * 0.3;
 
     if (this.chapter === 'minibus' && this.van) {
-      // interior view: look forward through windshield + side window
+      // chase view: above and behind the van, looking at it
       const yaw = this.van.yaw;
-      const eye = new THREE.Vector3(-0.55, 1.35, -1.6).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw).add(this.van.pos);
-      this.camera.position.lerp(eye, 1 - Math.exp(-dt * 6));
-      const look = new THREE.Vector3(0, 1.15, 4).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw).add(this.van.pos);
-      this.camera.lookAt(look);
-      this.camera.fov = 58;
+      const eye = new THREE.Vector3(6.4, 7.0, -8.6).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw).add(this.van.pos);
+      this.camera.position.lerp(eye, 1 - Math.exp(-dt * 3.5));
+      this.camera.lookAt(this.van.pos.x, this.van.pos.y + 1.0, this.van.pos.z);
+      this.camera.fov = 55;
       this.camera.updateProjectionMatrix();
       return;
     }
     if (this.chapter === 'transport') {
-      // truck bed: look back at road + convoy
-      this.camera.position.set(this.pos.x + 1.2, this.pos.y + 1.4, this.pos.z + 3.5);
-      this.camera.lookAt(this.pos.x - 1, this.pos.y + 0.6, this.pos.z - 20);
-      this.camera.fov = 60;
+      // truck bed: high wide view over the convoy
+      this.camera.position.set(this.pos.x + 3.0, this.pos.y + 4.2, this.pos.z + 8.5);
+      this.camera.lookAt(this.pos.x - 1, this.pos.y + 0.4, this.pos.z - 26);
+      this.camera.fov = 62;
       this.camera.updateProjectionMatrix();
       return;
     }
@@ -2143,7 +2229,7 @@ export class Game {
       dead: this.dead,
       victory: this.victory,
       stats: { ...this.stats },
-      prompt: this.prompt ?? (this.reloading > 0 ? 'Перезарядка…' : null),
+      prompt: this.prompt ?? (this.reloading > 0 ? 'Перезаряджання…' : null),
       dialogOptions: [...this.dialogOptions],
       hurtT: this.hurtT,
       fade: this.fade,

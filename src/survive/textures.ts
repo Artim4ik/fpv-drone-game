@@ -37,6 +37,10 @@ export function facadeTexture(seed: number, floors = 5, cols = 6): THREE.CanvasT
   const baseColor = tint < 0.33 ? `rgb(${base},${base - 12},${base - 30})` : tint < 0.66 ? `rgb(${base - 18},${base - 8},${base - 20})` : `rgb(${base - 30},${base - 22},${base - 12})`;
   g.fillStyle = baseColor;
   g.fillRect(0, 0, 256, 256);
+  // panel-house seams
+  g.fillStyle = 'rgba(30,28,24,0.35)';
+  for (let f = 1; f < floors; f++) g.fillRect(0, (f * 256) / floors - 1, 256, 2);
+  for (let vx = 0; vx < 256; vx += 64) g.fillRect(vx, 0, 2, 256);
   // grime streaks
   for (let i = 0; i < 40; i++) {
     g.fillStyle = `rgba(40,36,30,${0.03 + r() * 0.06})`;
@@ -73,7 +77,23 @@ export function facadeTexture(seed: number, floors = 5, cols = 6): THREE.CanvasT
         g.fillStyle = 'rgba(200,195,180,0.25)';
         g.fillRect(x + 2, y + 2, w - 4, h * 0.35);
       }
+      // air-conditioner box on some windows
+      if (r() < 0.22) {
+        g.fillStyle = 'rgba(214,212,200,0.95)';
+        g.fillRect(x + w + 3, y + h * 0.3, 10, 8);
+        g.fillStyle = 'rgba(60,58,52,0.9)';
+        g.fillRect(x + w + 4, y + h * 0.3 + 2, 8, 1);
+        g.fillRect(x + w + 4, y + h * 0.3 + 5, 8, 1);
+      }
     }
+  }
+  // drainpipes
+  for (let pi = 0; pi < 3; pi++) {
+    const px = 20 + r() * 216;
+    g.fillStyle = 'rgba(50,48,44,0.85)';
+    g.fillRect(px, 0, 5, 256);
+    g.fillStyle = 'rgba(140,136,126,0.5)';
+    g.fillRect(px, 0, 1, 256);
   }
   return toTexture(c);
 }
@@ -118,6 +138,14 @@ export function roadTexture(): THREE.CanvasTexture {
       g.lineTo(x, y);
     }
     g.stroke();
+  }
+  // edge lines + asphalt patches
+  g.fillStyle = '#a8a294';
+  g.fillRect(6, 0, 5, 256);
+  g.fillRect(245, 0, 5, 256);
+  for (let i = 0; i < 4; i++) {
+    g.fillStyle = `rgba(20,20,18,${0.12 + Math.random() * 0.12})`;
+    g.fillRect(Math.random() * 200, Math.random() * 200, 30 + Math.random() * 50, 20 + Math.random() * 40);
   }
   // center dashes
   g.fillStyle = '#b9b49a';
@@ -304,5 +332,136 @@ export function softDotTexture(): THREE.CanvasTexture {
   grad.addColorStop(1, 'rgba(255,255,255,0)');
   g.fillStyle = grad;
   g.fillRect(0, 0, 64, 64);
+  return toTexture(c);
+}
+
+/** Simple brick courses (fallback when the photo is unavailable). */
+export function brickTexture(): THREE.CanvasTexture {
+  const [c, g] = canvas(128, 128);
+  g.fillStyle = '#8c4a34';
+  g.fillRect(0, 0, 128, 128);
+  const r = rand(77);
+  for (let row = 0; row < 8; row++) {
+    const y = row * 16;
+    g.fillStyle = 'rgba(210,200,185,0.8)';
+    g.fillRect(0, y, 128, 2);
+    const off = row % 2 ? 16 : 0;
+    for (let x = off; x < 128; x += 32) g.fillRect(x, y, 2, 16);
+    for (let i = 0; i < 14; i++) {
+      g.fillStyle = `rgba(40,20,12,${0.1 + r() * 0.15})`;
+      g.fillRect(r() * 128, y + 2 + r() * 12, 3, 3);
+    }
+  }
+  return toTexture(c);
+}
+
+/** Wooden planks (fallback when the photo is unavailable). */
+export function plankTexture(): THREE.CanvasTexture {
+  const [c, g] = canvas(128, 128);
+  const r = rand(99);
+  for (let p = 0; p < 4; p++) {
+    const base = 100 + Math.floor(r() * 30);
+    g.fillStyle = `rgb(${base},${base - 28},${base - 58})`;
+    g.fillRect(0, p * 32, 128, 32);
+    g.fillStyle = 'rgba(30,20,12,0.7)';
+    g.fillRect(0, p * 32, 128, 2);
+    for (let i = 0; i < 8; i++) {
+      g.fillStyle = `rgba(60,42,24,${0.2 + r() * 0.25})`;
+      g.fillRect(r() * 128, p * 32 + 3 + r() * 26, 20 + r() * 60, 1);
+    }
+  }
+  return toTexture(c);
+}
+
+/** Dark soot blot (fallback when the photo is unavailable). */
+export function scorchDecalTexture(): THREE.CanvasTexture {
+  const [c, g] = canvas(128, 128);
+  const grad = g.createRadialGradient(64, 64, 4, 64, 64, 62);
+  grad.addColorStop(0, 'rgba(10,8,6,0.95)');
+  grad.addColorStop(0.6, 'rgba(16,14,11,0.7)');
+  grad.addColorStop(1, 'rgba(20,18,14,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 128, 128);
+  return toTexture(c);
+}
+
+/** MM-14-ish digital camo pixel pattern for TCC uniforms. */
+export function camoTexture(): THREE.CanvasTexture {
+  const [c, g] = canvas(128, 128);
+  const r = rand(1415);
+  g.fillStyle = '#6a6b4e';
+  g.fillRect(0, 0, 128, 128);
+  const cols = ['#5c5c40', '#4a4a34', '#7a7a58', '#3e3e2c', '#6a6b4e', '#565636'];
+  for (let y = 0; y < 128; y += 8) {
+    for (let x = 0; x < 128; x += 8) {
+      g.fillStyle = cols[Math.floor(r() * cols.length)];
+      g.fillRect(x, y, 8, 8);
+    }
+  }
+  return toTexture(c);
+}
+
+/** Ukrainian blue-yellow flag with slight wave shading. */
+export function uaFlagTexture(): THREE.CanvasTexture {
+  const [c, g] = canvas(120, 80);
+  g.fillStyle = '#2f6fd0';
+  g.fillRect(0, 0, 120, 40);
+  g.fillStyle = '#ffd83a';
+  g.fillRect(0, 40, 120, 40);
+  for (let x = 0; x < 120; x += 4) {
+    const sh = Math.sin((x / 120) * Math.PI * 2) * 0.08;
+    g.fillStyle = sh > 0 ? `rgba(255,255,255,${sh})` : `rgba(0,0,0,${-sh})`;
+    g.fillRect(x, 0, 4, 80);
+  }
+  return toTexture(c);
+}
+
+/** Ukrainian vehicle plate with blue UA band. */
+export function plateUATexture(text: string): THREE.CanvasTexture {
+  const [c, g] = canvas(128, 32);
+  g.fillStyle = '#f2f2ee';
+  g.fillRect(0, 0, 128, 32);
+  g.fillStyle = '#27438c';
+  g.fillRect(0, 0, 20, 32);
+  g.fillStyle = '#ffd83a';
+  g.fillRect(2, 22, 16, 4);
+  g.fillStyle = '#f2f2ee';
+  g.font = 'bold 11px Arial';
+  g.textAlign = 'center';
+  g.fillText('UA', 10, 15);
+  g.fillStyle = '#1a1a1a';
+  g.font = 'bold 20px Arial';
+  g.fillText(text, 74, 24);
+  return toTexture(c);
+}
+
+/** Star-shaped muzzle flash (for additive blending). */
+export function muzzleTexture(): THREE.CanvasTexture {
+  const [c, g] = canvas(64, 64);
+  g.fillStyle = '#000';
+  g.fillRect(0, 0, 64, 64);
+  const grad = g.createRadialGradient(32, 32, 1, 32, 32, 30);
+  grad.addColorStop(0, 'rgba(255,246,220,1)');
+  grad.addColorStop(0.25, 'rgba(255,210,120,0.9)');
+  grad.addColorStop(0.6, 'rgba(255,140,40,0.35)');
+  grad.addColorStop(1, 'rgba(255,120,20,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 64, 64);
+  g.fillStyle = 'rgba(255,240,200,0.95)';
+  g.fillRect(30, 4, 4, 56);
+  g.fillRect(4, 30, 56, 4);
+  return toTexture(c);
+}
+
+/** Tight round glow sprite (beacons, lamps). */
+export function glowTexture(): THREE.CanvasTexture {
+  const [c, g] = canvas(128, 128);
+  const grad = g.createRadialGradient(64, 64, 2, 64, 64, 62);
+  grad.addColorStop(0, 'rgba(255,255,255,1)');
+  grad.addColorStop(0.25, 'rgba(255,255,255,0.55)');
+  grad.addColorStop(0.6, 'rgba(255,255,255,0.12)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 128, 128);
   return toTexture(c);
 }

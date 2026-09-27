@@ -133,7 +133,7 @@ function buildMinibusMesh(): VanRig {
   body.add(beacon);
 
   // fictional livery stripe + text (canvas decal)
-  const stripeMat = new THREE.MeshStandardMaterial({ color: '#27436e', roughness: 0.5 });
+  const stripeMat = new THREE.MeshStandardMaterial({ color: '#4a4a2e', roughness: 0.5 });
   const stripeL = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.3, 5.5), stripeMat);
   stripeL.position.set(-1.0, 1.28, -0.15);
   const stripeRF = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.3, 1.7), stripeMat);
@@ -145,13 +145,13 @@ function buildMinibusMesh(): VanRig {
   lc.width = 512;
   lc.height = 64;
   const lg = lc.getContext('2d')!;
-  lg.fillStyle = '#27436e';
+  lg.fillStyle = '#4a4a2e';
   lg.fillRect(0, 0, 512, 64);
   lg.fillStyle = '#e8e9e6';
   lg.font = 'bold 34px Arial';
   lg.textAlign = 'center';
   lg.textBaseline = 'middle';
-  lg.fillText('ТИД • ИНСПЕКЦИЯ • 0417', 256, 34);
+  lg.fillText('ТЦК • КИЇВ • 0417', 256, 34);
   const ltex = new THREE.CanvasTexture(lc);
   ltex.colorSpace = THREE.SRGBColorSpace;
   const decalL = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 0.35), new THREE.MeshBasicMaterial({ map: ltex }));
@@ -168,10 +168,17 @@ function buildMinibusMesh(): VanRig {
   const pg = pc.getContext('2d')!;
   pg.fillStyle = '#f2f2ee';
   pg.fillRect(0, 0, 128, 32);
-  pg.fillStyle = '#1a1a1a';
-  pg.font = 'bold 24px Arial';
+  pg.fillStyle = '#27438c';
+  pg.fillRect(0, 0, 20, 32);
+  pg.fillStyle = '#ffd83a';
+  pg.fillRect(2, 22, 16, 4);
+  pg.fillStyle = '#f2f2ee';
+  pg.font = 'bold 11px Arial';
   pg.textAlign = 'center';
-  pg.fillText('ВГ 0417', 64, 25);
+  pg.fillText('UA', 10, 15);
+  pg.fillStyle = '#1a1a1a';
+  pg.font = 'bold 20px Arial';
+  pg.fillText('АА 0417 КА', 74, 24);
   const ptex = new THREE.CanvasTexture(pc);
   ptex.colorSpace = THREE.SRGBColorSpace;
   const plate = new THREE.Mesh(new THREE.PlaneGeometry(0.55, 0.14), new THREE.MeshBasicMaterial({ map: ptex }));

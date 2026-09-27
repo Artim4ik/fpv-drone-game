@@ -22,6 +22,10 @@ export class AudioEngine {
   private engFilter: BiquadFilterNode | null = null;
   private pulseTimer: number | null = null;
   mood: Mood = 'calm';
+  private sirenNodes: AudioNode[] = [];
+  private sirenOn = false;
+  private cannonBuf: AudioBuffer | null = null;
+  private cannonLoading = false;
 
   get isMuted(): boolean {
     return this.muted;
@@ -322,5 +326,116 @@ export class AudioEngine {
   shout(): void {
     this.blip(520, 0.12, 0.16, 'sawtooth', 700);
     window.setTimeout(() => this.blip(620, 0.14, 0.16, 'sawtooth', 480), 140);
+  }
+
+  /** Two-tone siren loop. Idempotent — safe to call every frame. */
+  sirenLoop(on: boolean): void {
+    if (!this.ctx || !this.master) {
+      this.sirenOn = false;
+      return;
+    }
+    if (on === this.sirenOn) return;
+    this.sirenOn = on;
+    if (!on) {
+      for (const n of this.sirenNodes) {
+        try {
+          if (n instanceof OscillatorNode) n.stop();
+          n.disconnect();
+        } catch {
+          /* ignore */
+        }
+      }
+      this.sirenNodes = [];
+      return;
+    }
+    try {
+      const ctx = this.ctx;
+      const o = ctx.createOscillator();
+      o.type = 'triangle';
+      o.frequency.value = 800;
+      const lfo = ctx.createOscillator();
+      lfo.type = 'square';
+      lfo.frequency.value = 0.9;
+      const lg = ctx.createGain();
+      lg.gain.value = 130;
+      lfo.connect(lg).connect(o.frequency);
+      const g = ctx.createGain();
+      g.gain.value = 0.0;
+      g.gain.setTargetAtTime(0.06, ctx.currentTime, 0.4);
+      o.connect(g).connect(this.master);
+      o.start();
+      lfo.start();
+      this.sirenNodes.push(o, lfo, lg, g);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** Sliding-door sweep + clunk. */
+  doorSlide(): void {
+    if (!this.ctx || !this.master || this.muted) return;
+    try {
+      const ctx = this.ctx;
+      const dur = 0.45;
+      const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * dur), ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const f = ctx.createBiquadFilter();
+      f.type = 'bandpass';
+      f.frequency.setValueAtTime(400, ctx.currentTime);
+      f.frequency.exponentialRampToValueAtTime(1400, ctx.currentTime + dur);
+      const g = ctx.createGain();
+      g.gain.value = 0.25;
+      src.connect(f).connect(g).connect(this.master);
+      src.start();
+      window.setTimeout(() => this.blip(95, 0.14, 0.28, 'square', 55), 380);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** Real recorded blast (frontline), falls back to synth. */
+  explosionReal(dist: number): void {
+    if (!this.ctx || !this.master || this.muted) return;
+    if (this.cannonBuf) {
+      try {
+        const ctx = this.ctx;
+        const src = ctx.createBufferSource();
+        src.buffer = this.cannonBuf;
+        src.playbackRate.value = 0.85 + Math.random() * 0.3;
+        const g = ctx.createGain();
+        g.gain.value = Math.max(0, Math.min(1, 60 / (60 + dist))) * 0.9;
+        const f = ctx.createBiquadFilter();
+        f.type = 'lowpass';
+        f.frequency.value = 900;
+        src.connect(f).connect(g).connect(this.master);
+        src.start();
+        return;
+      } catch {
+        /* fall through */
+      }
+    }
+    if (!this.cannonLoading) {
+      this.cannonLoading = true;
+      import('./assets')
+        .then(({ ASSET_URLS }) => {
+          if (!this.ctx) return;
+          fetch(ASSET_URLS.cannon)
+            .then((r) => r.arrayBuffer())
+            .then((b) => this.ctx!.decodeAudioData(b))
+            .then((buf) => {
+              this.cannonBuf = buf;
+            })
+            .catch(() => {
+              /* keep synth */
+            });
+        })
+        .catch(() => {
+          /* keep synth */
+        });
+    }
+    this.explosion(dist);
   }
 }
