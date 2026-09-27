@@ -209,6 +209,33 @@ export function makeSoftParticleTexture(sharpness = 0.18) {
   return finish(canvas);
 }
 
+/**
+ * Radial motion-blur disc for fast-spinning propellers:
+ * faint translucent disc with light-catching streak arcs.
+ */
+export function makePropBlurTexture() {
+  const { canvas, context } = makeCanvas(128);
+  const random = mulberry32(777);
+  const gradient = context.createRadialGradient(64, 64, 8, 64, 64, 62);
+  gradient.addColorStop(0, "rgba(255,255,255,0.08)");
+  gradient.addColorStop(0.72, "rgba(255,255,255,0.2)");
+  gradient.addColorStop(1, "rgba(255,255,255,0)");
+  context.fillStyle = gradient;
+  context.beginPath();
+  context.arc(64, 64, 62, 0, Math.PI * 2);
+  context.fill();
+  for (let index = 0; index < 9; index += 1) {
+    const radius = 24 + random() * 34;
+    const start = random() * Math.PI * 2;
+    context.strokeStyle = `rgba(255,255,255,${0.14 + random() * 0.3})`;
+    context.lineWidth = 1 + random() * 3;
+    context.beginPath();
+    context.arc(64, 64, radius, start, start + 0.7 + random() * 1.6);
+    context.stroke();
+  }
+  return finish(canvas);
+}
+
 /** Ragged dark scorch mark left by warhead detonations. */
 export function makeScorchTexture() {
   const { canvas, context } = makeCanvas(256);

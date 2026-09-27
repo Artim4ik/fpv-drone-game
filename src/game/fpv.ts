@@ -63,7 +63,8 @@ const CLEARANCE = 0.24;
 /** Below this throttle the props cannot hold attitude any more. */
 const CONTROL_AUTH_FLOOR = 0.16;
 
-export const HOVER_LEVER = 0.4915;
+/** Lever that exactly balances gravity: MAX_THRUST·h^1.4 = 9.81. */
+export const HOVER_LEVER = 0.491735;
 
 const _target = new THREE.Quaternion();
 const _euler = new THREE.Euler(0, 0, 0, "YXZ");
@@ -80,8 +81,10 @@ export function createFpvState(spawn: THREE.Vector3): FpvState {
     yawAngle: 0,
     pitchAngle: 0,
     rollAngle: 0,
-    throttleLever: HOVER_LEVER,
-    motorSpool: HOVER_LEVER,
+    // Throttle behaves like a transmitter stick resting at 0: no input → no
+    // thrust → the drone falls until you push the stick (or key) up again.
+    throttleLever: 0,
+    motorSpool: 0,
     mode: "ACRO",
     pitchCmd: 0,
     rollCmd: 0,

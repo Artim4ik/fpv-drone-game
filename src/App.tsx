@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import DroneScene, {
   type ControlScheme,
   type HitEventKind,
@@ -33,7 +33,49 @@ const initialTelemetry: Telemetry = {
   gamepad: false,
   flightMode: "ACRO",
   respawning: false,
+  throttle: 0,
+  roll: 0,
+  pitch: 0,
+  voltage: 16.8,
+  current: 0,
+  consumedMah: 0,
 };
+
+const COMPASS_PPD = 2.4;
+const CARDINALS: Array<{ deg: number; label: string; major?: boolean }> = [
+  { deg: 0, label: "N", major: true },
+  { deg: 45, label: "NE" },
+  { deg: 90, label: "E", major: true },
+  { deg: 135, label: "SE" },
+  { deg: 180, label: "S", major: true },
+  { deg: 225, label: "SW" },
+  { deg: 270, label: "W", major: true },
+  { deg: 315, label: "NW" },
+];
+
+function CompassTape({ heading }: { heading: number }) {
+  return (
+    <div className="compass" aria-hidden="true">
+      <div
+        className="compass__strip"
+        style={{ transform: `translateX(${-heading * COMPASS_PPD}px)` }}
+      >
+        {[-1, 0, 1].flatMap((cycle) =>
+          CARDINALS.map((mark) => (
+            <span
+              key={`${cycle}-${mark.deg}`}
+              className={`compass__mark ${mark.major ? "compass__mark--major" : ""}`}
+              style={{ left: `${(cycle * 360 + mark.deg) * COMPASS_PPD}px` }}
+            >
+              {mark.label}
+            </span>
+          )),
+        )}
+      </div>
+      <span className="compass__pointer" />
+    </div>
+  );
+}
 
 function formatTime(totalSeconds: number) {
   const minutes = Math.floor(totalSeconds / 60);
@@ -179,11 +221,6 @@ function App() {
     return () => window.cancelAnimationFrame(animationFrame);
   }, [launchMission]);
 
-  const headingLabel = useMemo(
-    () => `${Math.round(telemetry.heading).toString().padStart(3, "0")}°`,
-    [telemetry.heading],
-  );
-
   const requestFullscreen = () => {
     if (!document.fullscreenElement) void document.documentElement.requestFullscreen();
     else void document.exitFullscreen();
@@ -254,10 +291,46 @@ function App() {
           <div className="hud__right">
             <span>LINK</span>
             <strong>{Math.round(telemetry.signal)}%</strong>
+            <small className="osd-rssi">
+              RSSI {Math.round(-30 - (100 - telemetry.signal) * 1.1)} dBm
+            </small>
             <i className="signal-bars"><b /><b /><b /><b /></i>
             <span>BAT</span>
             <strong>{Math.round(telemetry.battery)}%</strong>
           </div>
+
+          <div className="osd-power" aria-hidden="true">
+            <strong>{telemetry.voltage.toFixed(1)}V</strong>
+            <span>{Math.round(telemetry.current)}A</span>
+            <span>{telemetry.consumedMah} mAh</span>
+          </div>
+
+          <div className="throttle-gauge" aria-label={`Тяга ${Math.round(telemetry.throttle * 100)} процентов`}>
+            <div className="throttle-gauge__track">
+              <div
+                className="throttle-gauge__fill"
+                style={{ height: `${Math.round(telemetry.throttle * 100)}%` }}
+              />
+            </div>
+            <strong>{Math.round(telemetry.throttle * 100)}</strong>
+            <span>THR</span>
+          </div>
+
+          {!telemetry.respawning && (
+            <div className="ah" aria-hidden="true">
+              <div
+                className="ah__horizon"
+                style={{
+                  transform: `translate(-50%, -50%) rotate(${
+                    (telemetry.roll * 180) / Math.PI
+                  }deg) translateY(${(telemetry.pitch * 180) / Math.PI * 2.6}px)`,
+                }}
+              >
+                <i className="ah__tick ah__tick--l" />
+                <i className="ah__tick ah__tick--r" />
+              </div>
+            </div>
+          )}
 
           <Crosshair locked={telemetry.locked && !telemetry.respawning} />
           <div
@@ -284,9 +357,7 @@ function App() {
               <GamepadIcon />
               <span>{telemetry.gamepad ? "XBOX / USB ПОДКЛЮЧЕН" : "КЛАВИАТУРА / ОЖИДАНИЕ GAMEPAD"}</span>
             </div>
-            <div className="heading">
-              <span>W</span><span>NW</span><strong>{headingLabel}</strong><span>NE</span><span>E</span>
-            </div>
+            <CompassTape heading={telemetry.heading} />
             <div className="payload">
               <span>ЦЕЛИ <strong>{targets}</strong></span>
               <span>СЧЕТ <strong>{score.toString().padStart(4, "0")}</strong></span>
@@ -320,18 +391,18 @@ function App() {
             <b>A</b>
           </button>
           <div className="briefing__controls">
-            <div><strong>ЛЕВЫЙ СТИК</strong><span>Тяга / рыскание</span></div>
+            <div><strong>ЛЕВЫЙ СТИК / SHIFT</strong><span>Тяга: только вверх, отпустил — 0</span></div>
             <div><strong>ПРАВЫЙ СТИК</strong><span>Крен / тангаж</span></div>
             <div><strong>SPACE / A</strong><span>Форсаж</span></div>
             <div><strong>X</strong><span>Стабилизация (удерживать)</span></div>
           </div>
           <p className="briefing__fallback">
-            Клавиатура: W/S — тангаж,{" "}
+            Клавиатура: Shift — тяга вверх (отпустил — дрон падает), Ctrl — сброс тяги,
+            W/S — тангаж,{" "}
             {controlScheme === "yawAD"
               ? "A/D (или Q/E) — рыскание, ←/→ — крен"
               : "A/D (или ←/→) — крен, Q/E — рыскание"}
-            , Shift/Ctrl — тяга, Space — форсаж, X — стабилизация, ESC — пауза. Схема A/D
-            переключается в HUD.
+            , Space — форсаж, X — стабилизация, ESC — пауза. Схема A/D — в HUD.
           </p>
         </section>
       )}

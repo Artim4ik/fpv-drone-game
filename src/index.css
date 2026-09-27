@@ -189,8 +189,169 @@ button {
   gap: 5px;
 }
 
-.hud__left {
+.hud__left strong,
+.hud__right strong,
+.osd-power,
+.osd-rssi,
+.throttle-gauge strong,
+.compass__mark {
+  text-shadow:
+    1px 1px 0 rgba(4, 6, 3, 0.95),
+    -1px 1px 0 rgba(4, 6, 3, 0.7),
+    1px -1px 0 rgba(4, 6, 3, 0.7),
+    0 0 6px rgba(0, 0, 0, 0.55);
+}
+
+/* Power system readout of a real FPV OSD. */
+.osd-power {
+  position: absolute;
+  top: 98px;
   left: 28px;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  color: rgba(244, 247, 238, 0.82);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+
+.osd-power strong {
+  color: #f4f7ee;
+  font-size: 16px;
+  font-weight: 400;
+}
+
+.osd-rssi {
+  display: block;
+  margin-top: -1px;
+  color: rgba(244, 247, 238, 0.6);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+}
+
+/* Throttle = left stick gauge on the left edge. */
+.throttle-gauge {
+  position: absolute;
+  top: 50%;
+  left: 12px;
+  display: grid;
+  justify-items: center;
+  gap: 7px;
+  transform: translateY(-50%);
+}
+
+.throttle-gauge__track {
+  position: relative;
+  width: 7px;
+  height: 172px;
+  border: 1px solid rgba(244, 247, 238, 0.4);
+  background: rgba(8, 10, 7, 0.55);
+}
+
+.throttle-gauge__fill {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  background: #f2f6ea;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.4);
+  transition: height 70ms linear;
+}
+
+.throttle-gauge strong {
+  color: #f4f7ee;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.throttle-gauge span {
+  color: rgba(244, 247, 238, 0.55);
+  font-size: 8px;
+  letter-spacing: 0.14em;
+}
+
+/* Artificial horizon (Betaflight/DJI style ladder). */
+.ah {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 300px;
+  height: 72px;
+  color: rgba(244, 247, 238, 0.72);
+  transform: translate(-50%, -50%);
+}
+
+.ah__horizon {
+  position: absolute;
+  inset: 0;
+  will-change: transform;
+}
+
+.ah__horizon::before,
+.ah__horizon::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 118px;
+  height: 1px;
+  background: currentColor;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.85);
+}
+
+.ah__horizon::before { left: 0; }
+.ah__horizon::after { right: 0; }
+
+.ah__tick {
+  position: absolute;
+  top: 50%;
+  width: 1px;
+  height: 16px;
+  background: currentColor;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.85);
+}
+
+.ah__tick--l { left: 0; transform: translateY(-50%); }
+.ah__tick--r { right: 0; transform: translateY(-50%); }
+
+/* Heading tape like a real OSD compass strip. */
+.compass {
+  position: relative;
+  width: min(340px, 34vw);
+  height: 28px;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 16%, #000 84%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 16%, #000 84%, transparent);
+}
+
+.compass__strip {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  height: 100%;
+}
+
+.compass__mark {
+  position: absolute;
+  top: 50%;
+  color: rgba(244, 247, 238, 0.55);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  transform: translate(-50%, -50%);
+}
+
+.compass__mark--major {
+  color: #f4f7ee;
+  font-size: 13px;
+}
+
+.compass__pointer {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 50%;
+  width: 1px;
+  background: var(--acid);
+  box-shadow: 0 0 6px rgba(212, 238, 105, 0.7);
 }
 
 .hud__right {
@@ -686,8 +847,12 @@ button {
   .hud__mission { display: none; }
   .hud__brand strong { font-size: 11px; }
   .hud__actions button:first-child { display: none; }
-  .hud__left { left: 14px; }
+  .hud__left { left: 30px; }
   .hud__right { right: 14px; }
+  .throttle-gauge { left: 5px; }
+  .throttle-gauge__track { height: 122px; }
+  .osd-power { top: 78px; left: 14px; gap: 8px; font-size: 10px; }
+  .ah { width: 210px; height: 56px; }
   .hud__bottom { height: 78px; padding: 12px 14px; grid-template-columns: 1fr auto; }
   .controller-state { display: none; }
   .heading { display: none; }

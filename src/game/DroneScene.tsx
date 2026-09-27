@@ -10,6 +10,7 @@ import { createTank, KILL_POINTS, resolveArmorHit, tankLabel, type TankBuild, ty
 import {
   makeArmorBumpTexture,
   makeMarkingTexture,
+  makePropBlurTexture,
   makeScorchTexture,
   makeSoftParticleTexture,
   makeTerrainTexture,
@@ -26,6 +27,15 @@ export type Telemetry = {
   gamepad: boolean;
   flightMode: FlightMode;
   respawning: boolean;
+  /** Throttle stick position 0..1 (like the left stick of a transmitter). */
+  throttle: number;
+  /** Body attitude in radians for the artificial horizon. */
+  roll: number;
+  pitch: number;
+  /** Power system readouts of a real FPV OSD. */
+  voltage: number;
+  current: number;
+  consumedMah: number;
 };
 
 export type HitEventKind = "kill" | "hit" | "warn" | "info";
@@ -80,7 +90,10 @@ type Blast = { delay: number; position: THREE.Vector3; power: number };
 const TERRAIN_SIZE = 520;
 const START_POSITION = new THREE.Vector3(0, 18, 62);
 const SUN_OFFSET = new THREE.Vector3(-70, 110, 45);
-const CAM_TILT = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.12, 0, 0));
+/** Real FPV cameras sit tilted up ~13° on the frame. */
+const CAM_TILT = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.23, 0, 0));
+/** Base lens of a wide FPV camera (plus speed-driven widening). */
+const BASE_FOV = 88;
 const RESPAWN_DELAY = 1.6;
 const GROUND_DEATH_SPEED = 5.2;
 const SKIM_DEATH_SPEED = 11;
@@ -373,6 +386,77 @@ function addWorldDetails(scene: THREE.Scene) {
   }
 }
 
+/**
+ * Visible airframe for the FPV feed: carbon arms, motors and propellers in
+ * front of the lens — like a real 5" quad seen through a wide FPV camera.
+ */
+function buildDroneRig(propBlur: THREE.Texture) {
+  const rig = new THREE.Group();
+  const carbon = new THREE.MeshStandardMaterial({
+    color: "#14151a",
+    roughness: 0.65,
+    metalness: 0.35,
+  });
+  const motorMaterial = new THREE.MeshStandardMaterial({
+    color: "#4a4d55",
+    roughness: 0.35,
+    metalness: 0.85,
+  });
+  const bladeMaterial = new THREE.MeshStandardMaterial({
+    color: "#1b1d22",
+    roughness: 0.5,
+    metalness: 0.2,
+    side: THREE.DoubleSide,
+  });
+  const blurMaterial = new THREE.MeshBasicMaterial({
+    map: propBlur,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    color: "#cfd4c6",
+  });
+
+  const spinnerPhases: THREE.Group[] = [];
+  const frontPositions: Array<[number, number]> = [
+    [-0.42, -0.26],
+    [0.42, -0.26],
+  ];
+
+  for (const [x, y] of frontPositions) {
+    // Carbon arm reaching out from under the camera.
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.028, 0.5), carbon);
+    arm.position.set(x * 0.5, y - 0.06, -0.24);
+    arm.lookAt(new THREE.Vector3(x, y, -0.5));
+    rig.add(arm);
+
+    const motor = new THREE.Mesh(new THREE.CylinderGeometry(0.038, 0.042, 0.05, 10), motorMaterial);
+    motor.position.set(x, y, -0.5);
+    rig.add(motor);
+
+    const spinner = new THREE.Group();
+    spinner.position.set(x, y, -0.5);
+    for (const angle of [0, Math.PI / 2]) {
+      const blade = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.004, 0.035), bladeMaterial);
+      blade.rotation.y = angle;
+      spinner.add(blade);
+    }
+    const blur = new THREE.Mesh(new THREE.CircleGeometry(0.185, 24), blurMaterial);
+    blur.rotation.x = -Math.PI / 2;
+    blur.userData.isPropBlur = true;
+    spinner.add(blur);
+    rig.add(spinner);
+    spinnerPhases.push(spinner);
+  }
+
+  // A glimpse of the front frame plate at the bottom of the feed.
+  const plate = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.02, 0.16), carbon);
+  plate.position.set(0, -0.33, -0.34);
+  rig.add(plate);
+
+  return { rig, spinnerPhases, blurMaterial };
+}
+
 export default function DroneScene({
   active,
   muted,
@@ -413,9 +497,16 @@ export default function DroneScene({
     scene.background = new THREE.Color("#a8a28f");
     scene.fog = new THREE.FogExp2("#9f9a88", 0.0075);
 
-    const camera = new THREE.PerspectiveCamera(79, mount.clientWidth / mount.clientHeight, 0.1, 650);
+    const camera = new THREE.PerspectiveCamera(BASE_FOV, mount.clientWidth / mount.clientHeight, 0.1, 650);
     camera.position.copy(START_POSITION);
     camera.quaternion.copy(CAM_TILT);
+
+    // The airframe itself in view: arms, motors and spinning props.
+    const propBlurTexture = makePropBlurTexture();
+    const droneRig = buildDroneRig(propBlurTexture);
+    camera.add(droneRig.rig);
+    scene.add(camera);
+    let propAngle = 0;
 
     const webglRenderer = new THREE.WebGLRenderer({
       antialias: true,
@@ -536,7 +627,8 @@ export default function DroneScene({
     const tumble = new THREE.Vector3();
     let boost = false;
     let previousLocked = false;
-    let keyboardThrottle = HOVER_LEVER;
+    // Throttle stick starts at 0: no input → the drone falls.
+    let keyboardThrottle = 0;
     // Progressive keyboard deflections (partial rates on short taps).
     let keyPitch = 0;
     let keyRoll = 0;
@@ -846,6 +938,7 @@ export default function DroneScene({
       audio.staticBurst();
       rumble(1, 600);
       shake = 1;
+      droneRig.rig.visible = false;
       emit("БОРТ УНИЧТОЖЕН — ПЕРЕЗАПУСК В ВОЗДУХЕ", "info");
     };
 
@@ -865,8 +958,10 @@ export default function DroneScene({
       state.pitchCmd = 0;
       state.rollCmd = 0;
       state.yawCmd = 0;
-      state.throttleLever = HOVER_LEVER;
-      state.motorSpool = HOVER_LEVER;
+      // Fresh airframe: throttle stick rests at 0 — push it up to fly.
+      state.throttleLever = 0;
+      state.motorSpool = 0;
+      droneRig.rig.visible = true;
       audio.armBeeps();
       emit("НОВЫЙ БОРТ В ВОЗДУХЕ — ПРОДОЛЖАЕМ", "info");
     };
@@ -1096,9 +1191,16 @@ export default function DroneScene({
 
       const keyboardUp = keys.has("ShiftLeft") || keys.has("ShiftRight");
       const keyboardDown = keys.has("ControlLeft") || keys.has("ControlRight");
-      // The keyboard throttle is a lever that slews, like a real mode-2 stick.
-      if (keyboardUp) keyboardThrottle = Math.min(1, keyboardThrottle + 0.65 * delta);
-      if (keyboardDown) keyboardThrottle = Math.max(0, keyboardThrottle - 0.65 * delta);
+      // Throttle behaves like a transmitter stick: Shift pushes it up,
+      // releasing springs it back to 0 (no thrust → the drone falls),
+      // Ctrl slams it to idle instantly.
+      if (keyboardUp) {
+        keyboardThrottle = Math.min(1, keyboardThrottle + 1.05 * delta);
+      } else if (keyboardDown) {
+        keyboardThrottle = Math.max(0, keyboardThrottle - 4.5 * delta);
+      } else {
+        keyboardThrottle = Math.max(0, keyboardThrottle - 1.15 * delta);
+      }
       let yaw = keyYaw;
       let roll = keyRoll;
       let pitch = keyPitch;
@@ -1156,17 +1258,25 @@ export default function DroneScene({
       if (locked && !previousLocked) audio.beep();
       previousLocked = locked;
 
+      const batteryPct = THREE.MathUtils.clamp(100 - elapsed * 0.21 - (boost ? 3 : 0), 0, 100);
+
       callbacksRef.current.onTelemetry({
         altitude: Math.max(0, camera.position.y - ground),
         speed: state.velocity.length() * 3.6,
         heading: flightHeading(state),
         signal: THREE.MathUtils.clamp(100 - homeDistance * 0.16, 42, 100),
-        battery: THREE.MathUtils.clamp(100 - elapsed * 0.21 - (boost ? 3 : 0), 0, 100),
+        battery: batteryPct,
         range: closestRange,
         locked,
         gamepad: gamepadConnected,
         flightMode: state.mode,
         respawning: destroyed,
+        throttle: state.throttleLever,
+        roll: state.rollAngle,
+        pitch: state.pitchAngle,
+        voltage: 13.2 + batteryPct * 0.036,
+        current: 4 + state.throttleLever * 46 + (boost ? 18 : 0),
+        consumedMah: Math.round((100 - batteryPct) * 52),
       });
     };
 
@@ -1301,11 +1411,22 @@ export default function DroneScene({
       }
 
       // Speed sensation: the lens opens up as the drone accelerates.
-      const speedFov = 79 + THREE.MathUtils.clamp((state.velocity.length() - 9) * 0.33, 0, 15);
+      const speedFov = BASE_FOV + THREE.MathUtils.clamp((state.velocity.length() - 9) * 0.3, 0, 12);
       if (Math.abs(camera.fov - speedFov) > 0.02) {
         camera.fov += (speedFov - camera.fov) * (1 - Math.exp(-delta * 3));
         camera.updateProjectionMatrix();
       }
+
+      // Visible airframe: props spin with motor RPM, blur fades in with speed.
+      propAngle += (7 + state.motorSpool * 130) * delta;
+      droneRig.spinnerPhases.forEach((spinner, index) => {
+        spinner.rotation.y = (index % 2 === 0 ? 1 : -1) * propAngle + index * 1.7;
+      });
+      droneRig.blurMaterial.opacity = THREE.MathUtils.clamp(
+        (state.motorSpool - 0.12) * 0.9,
+        0,
+        0.5,
+      );
       composer.render();
     };
 
@@ -1336,6 +1457,7 @@ export default function DroneScene({
       scorchTexture.dispose();
       scorchGeometry.dispose();
       debrisGeometry.dispose();
+      propBlurTexture.dispose();
       composer.dispose();
       audio.dispose();
       audioRef.current = null;
