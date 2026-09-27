@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { World, nearCover, resolveCollision, losBlocked, type ZoneData } from './world';
 import { buildNavGrid, type NavGrid } from './astar';
 import { makeFireQuad, tickFire } from './fire';
-import { makeHumanoid, Civilian, FootPatrol, Hostile, steerToward, makeNameTag, type Humanoid } from './actors';
+import { makeHumanoid, Civilian, FootPatrol, Hostile, steerToward, makeNameTag, type Humanoid, Brainrot, Shahed, Vlogger, BR_CFG, VLOG_NAME, VLOG_SONG, type BrKind, type VlogKind} from './actors';
 import { VanAI } from './minibus';
 import { AudioEngine } from './audio';
 import { NetClient, type ChatMsg } from './net';
@@ -34,6 +34,7 @@ import type { AnimState } from '../../shared/protocol';
 export interface GameOptions {
   name: string;
   quality: Quality;
+  brainrot?: boolean;
   onHud: (h: HudSnapshot) => void;
   onDocs: (docs: GameDoc[]) => void;
   onChat: (lines: ChatMsg[]) => void;
@@ -229,6 +230,21 @@ export class Game {
   private flashes: Array<{ light: THREE.PointLight; sprite: THREE.Sprite; flare?: THREE.Sprite; quad?: THREE.Mesh; t: number }> = [];
   private smokes: Array<{ sprite: THREE.Sprite; t: number; life: number; rise: number }> = [];
   private navGrid: NavGrid | null = null;
+  // brainrot GTA mode
+  private brainrotMode = false;
+  private score = 0;
+  private brainrots: Brainrot[] = [];
+  private vloggers: Vlogger[] = [];
+  private shaheds: Shahed[] = [];
+  private tung: Brainrot | null = null;
+  private car: THREE.Group | null = null;
+  private carSpeed = 0;
+  private carYaw = 0;
+  private carTmp = new THREE.Vector3();
+  private tungRoarCd = 0;
+  private trickleT = 22;
+  private songToastCd = 0;
+  private tungRespawnT = 60;
   private sun!: THREE.DirectionalLight;
   private hemi!: THREE.HemisphereLight;
   private skyMat!: THREE.ShaderMaterial;
@@ -312,6 +328,8 @@ export class Game {
     this.net.connect(opts.name, 'civilian');
 
     this.buildPlayer('civilian');
+    this.brainrotMode = this.opts.brainrot === true;
+    if (this.brainrotMode) this.opts.name = 'Микола';
     this.loadChapter('city');
     this.loop();
   }
@@ -579,6 +597,17 @@ export class Game {
       this.scene.remove(t.mesh, t.stand);
     }
     this.rangeTargets = [];
+    for (const b of this.brainrots) b.dispose(this.scene);
+    this.brainrots = [];
+    this.tung = null;
+    for (const v of this.vloggers) v.dispose(this.scene);
+    this.vloggers = [];
+    for (const s of this.shaheds) s.dispose(this.scene);
+    this.shaheds = [];
+    this.car = null;
+    this.audio.musicStop();
+    this.audio.shahedLoop(false);
+    this.audio.carEngine(false);
     if (this.van) {
       this.van.dispose(this.scene);
       this.van = null;
@@ -761,6 +790,7 @@ export class Game {
       this.camYaw = this.zone.spawnYaw;
       this.buildPlayer('civilian');
       this.setArmed(false);
+      if (this.brainrotMode) this.setupBrainrot();
       // van + officers + driver
       this.van = new VanAI(this.zone.route, this.zone.hotspots, this.scene);
       this.van.events.onHorn = () => this.audio.horn();
@@ -1057,7 +1087,7 @@ export class Game {
       this.audio.radioBlip();
       window.setTimeout(() => this.showMessage('Вам вручили повістку. З’явитися на дільницю!', 4), 2600);
     }
-    this.objective = { title: 'Перечекайте облаву', detail: 'Не потрапляйте патрулю на очі', progress: `${Math.floor(this.surviveNeed - this.survivedT)}с` };
+    if (!this.brainrotMode) this.objective = { title: 'Перечекайте облаву', detail: 'Не потрапляйте патрулю на очі', progress: `${Math.floor(this.surviveNeed - this.survivedT)}с` };
     window.setTimeout(() => {
       if (this.encounter === 'released') this.encounter = 'none';
     }, 2500);
@@ -1076,6 +1106,15 @@ export class Game {
 
   private detainPlayer(): void {
     if (this.detained) return;
+    if (this.brainrotMode) {
+      this.score = Math.max(0, this.score - 1000);
+      this.showMessage('🚐 ТЦК СПІЙМАЛО МИКОЛУ! Штраф −1000. ТІКАЙ!', 4);
+      this.encounter = 'none';
+      this.officerState = 'return';
+      this.van?.release();
+      this.van?.startChase();
+      return;
+    }
     this.detained = true;
     this.showMessage('Вас затримали.', 3);
     this.fadeTo(() => this.loadChapter('minibus'));
@@ -1428,7 +1467,7 @@ export class Game {
   }
 
   private damagePlayer(amount: number): void {
-    if (this.dead || this.chapter !== 'frontline') return;
+    if (this.dead || (this.chapter !== 'frontline' && !this.brainrotMode)) return;
     this.health -= amount;
     this.lastHurt = this.time;
     this.hurtT = this.time;
@@ -1585,7 +1624,7 @@ export class Game {
   private raycaster = new THREE.Raycaster();
   private tryShoot(): void {
     if (!this.armed || this.reloading > 0 || this.dead || this.carrying) return;
-    if (this.chapter !== 'training' && this.chapter !== 'frontline') return;
+    if (this.chapter !== 'training' && this.chapter !== 'frontline' && !(this.chapter === 'city' && this.brainrotMode)) return;
     if (this.time - this.lastShot < 0.13) return;
     if (this.ammo <= 0) {
       this.audio.uiClick();
@@ -1640,12 +1679,42 @@ export class Game {
         }
       }
     }
+    for (const b of this.brainrots) {
+      if (!b.dead) {
+        b.sprite.userData.br = b;
+        targets.push(b.sprite);
+      }
+    }
+    for (const s of this.shaheds) {
+      if (!s.dead) {
+        s.group.traverse((o) => {
+          if (o instanceof THREE.Mesh) {
+            o.userData.br = s;
+            targets.push(o);
+          }
+        });
+      }
+    }
     const hits = this.raycaster.intersectObjects(targets, false);
     let end: THREE.Vector3;
     if (hits.length > 0) {
       const h = hits[0];
       end = h.point.clone();
       this.shotsHit++;
+      const bro = h.object.userData.br as Brainrot | Shahed | undefined;
+      if (bro && !bro.dead) {
+        const killed = bro.damage(34 + Math.random() * 12);
+        this.spawnParticles(end.x, end.y, end.z, 6, bro instanceof Shahed ? '#ff9a3a' : '#7a1a1a', 3, 0.5);
+        if (killed) {
+          this.addScore(bro.score, `${bro.label} ЗНИЩЕНИЙ! +${bro.score}`);
+          if (bro instanceof Shahed) {
+            this.explosionFx(bro.pos.clone(), false);
+          } else {
+            this.burstFx(bro.pos);
+            if (bro.kind === 'tung') this.onTungDeath();
+          }
+        }
+      }
       const hostile = (h.object.userData.hostile as Hostile | undefined) ?? null;
       if (hostile) {
         const killed = hostile.damage(34 + Math.random() * 12);
@@ -1687,9 +1756,328 @@ export class Game {
     this.audio.reload();
   }
 
+  // ================================================================ brainrot GTA mode
+  private setupBrainrot(): void {
+    if (!this.zone) return;
+    this.setArmed(true);
+    this.ammo = 30;
+    this.reserve = 999;
+    this.score = 0;
+    this.surviveNeed = 240;
+    this.survivedT = 0;
+    this.surviveActive = true;
+    this.objective = { title: '🧠 ПОБІГ МИКОЛИ', detail: 'Виживи 4 хвилини і втікай на автобусі! ТУНГ ТУНГ САХУР вже йде…', progress: '240с' };
+    this.tung = new Brainrot('tung', this.pos.x + 30, this.pos.z - 30, this.scene);
+    this.brainrots.push(this.tung);
+    const crew: BrKind[] = ['trala', 'cappu', 'lirili', 'baller', 'huggy'];
+    crew.forEach((k, i) => {
+      const a = (i / crew.length) * Math.PI * 2;
+      this.brainrots.push(new Brainrot(k, this.pos.x + Math.cos(a) * 45, this.pos.z + Math.sin(a) * 45, this.scene));
+    });
+    this.brainrots.push(new Brainrot('bomba', this.pos.x - 40, this.pos.z + 40, this.scene));
+    const vk: VlogKind[] = ['vlad', 'beast', 'glasha'];
+    vk.forEach((k, i) => {
+      const a = (i / 3) * Math.PI * 2 + 0.5;
+      this.vloggers.push(new Vlogger(k, this.pos.x + Math.cos(a) * 25, this.pos.z + Math.sin(a) * 25, this.scene));
+    });
+    for (let i = 0; i < 3; i++) this.spawnShahed();
+    this.audio.musicPlay('tung');
+    this.showMessage('🧠 ТУНГ ТУНГ ТУНГ САХУР ІДЕ ЗА ТОБОЮ, МИКОЛА!', 5);
+  }
+
+  private spawnShahed(): void {
+    if (!this.zone || !this.brainrotMode || this.chapter !== 'city' || this.dead) return;
+    const a = Math.random() * Math.PI * 2;
+    const s = new Shahed(this.pos.x + Math.cos(a) * 120, 30, this.pos.z + Math.sin(a) * 120, this.scene);
+    const r = Math.random();
+    if (r < 0.5) {
+      s.target.copy(this.pos);
+    } else if (r < 0.75 && this.civilians.length > 0) {
+      s.target.copy(this.civilians[Math.floor(Math.random() * this.civilians.length)].pos);
+    } else {
+      s.target.set((Math.random() - 0.5) * 160, 0, (Math.random() - 0.5) * 160);
+    }
+    this.shaheds.push(s);
+    this.audio.shahedLoop(true);
+  }
+
+  private updateBrainrot(dt: number, z: ZoneData): void {
+    if (this.dead) {
+      this.audio.musicStop();
+      this.audio.shahedLoop(false);
+      this.audio.carEngine(false);
+      return;
+    }
+    const tung = this.tung && !this.tung.dead ? this.tung : null;
+    const tungD = tung ? Math.hypot(tung.pos.x - this.pos.x, tung.pos.z - this.pos.z) : 999;
+    for (const b of this.brainrots) {
+      if (b.dead) continue;
+      b.update(dt, this.time, this.pos, z.colliders, this.navGrid);
+      if (b.kind === 'bomba' && b.bombT <= 0) {
+        b.bombT = 5 + Math.random() * 3;
+        this.explosionFx(new THREE.Vector3(b.pos.x, 0.5, b.pos.z), false);
+        if (Math.hypot(b.pos.x - this.pos.x, b.pos.z - this.pos.z) < 9) this.damagePlayer(20);
+      }
+      const cfg = BR_CFG[b.kind];
+      if (cfg.range > 0 && b.atkCd <= 0 && Math.hypot(b.pos.x - this.pos.x, b.pos.z - this.pos.z) < cfg.range) {
+        b.atkCd = b.kind === 'tung' ? 1.6 : 1.1;
+        this.damagePlayer(this.car ? Math.round(cfg.dmg * 0.5) : cfg.dmg);
+        if (b.kind === 'tung') {
+          this.audio.growlSting();
+          this.showMessage('🪵 ТУНГ ТУНГ! САХУР Б’Є БІТОЮ!', 2);
+        } else if (b.kind === 'huggy') {
+          this.audio.growlSting();
+          this.showMessage('🫂 ХАГІ-БАГІ ОБІЙМАЄ! БОЛЯЧЕ!', 2);
+        }
+      }
+    }
+    // music director: tung chase > singing vlogger nearby
+    this.songToastCd -= dt;
+    let want: 'tung' | 'vlad' | 'beast' | 'glasha' | null = null;
+    let singer: Vlogger | null = null;
+    if (tung && tungD < 45) {
+      want = 'tung';
+    } else {
+      for (const v of this.vloggers) {
+        if (v.dead) continue;
+        if (Math.hypot(v.pos.x - this.pos.x, v.pos.z - this.pos.z) < 16) {
+          singer = v;
+          break;
+        }
+      }
+      if (singer) want = singer.kind;
+    }
+    if (want && this.audio.musicNow() !== want) {
+      this.audio.musicPlay(want);
+      if (singer && this.songToastCd <= 0) {
+        this.songToastCd = 25;
+        this.showMessage(`🎤 ${VLOG_NAME[singer.kind]} співає ${VLOG_SONG[singer.kind]}!`, 3);
+      }
+    } else if (!want && this.audio.musicNow()) {
+      this.audio.musicStop();
+    }
+    if (singer && Math.random() < dt * 2) this.spawnParticles(singer.pos.x, 1.8, singer.pos.z, 1, '#ffd23a', 1, 0.8);
+    for (const v of this.vloggers) {
+      if (v.dead) continue;
+      v.update(dt, this.time, tung ? tung.pos : null, z.colliders, this.navGrid);
+      if (v.giftT <= 0) {
+        v.giftT = 22 + Math.random() * 10;
+        if (Math.hypot(v.pos.x - this.pos.x, v.pos.z - this.pos.z) < 14) {
+          if (v.kind === 'beast') {
+            this.addScore(500, '💰 МІСТЕР ЗВІР дарує $500! +500');
+          } else if (v.kind === 'vlad') {
+            this.reserve += 60;
+            this.showMessage('📦 ВЛАД Б4 підігнав набої! +60', 2.5);
+            this.audio.pickup();
+          } else {
+            this.health = Math.min(100, this.health + 45);
+            this.showMessage('🥧 БАБА ГЛАША лікує пиріжками! +45 HP', 2.5);
+            this.audio.pickup();
+          }
+          this.burstFx(v.pos);
+        }
+      }
+    }
+    for (let i = this.shaheds.length - 1; i >= 0; i--) {
+      const s = this.shaheds[i];
+      const ev = s.update(dt, this.time);
+      if (ev === 'dive') {
+        this.audio.shahedWhistle();
+      } else if (ev === 'boom') {
+        this.explosionFx(s.pos.clone(), true);
+        if (Math.hypot(s.pos.x - this.pos.x, s.pos.z - this.pos.z) < 10) this.damagePlayer(35);
+        s.dispose(this.scene);
+        this.shaheds.splice(i, 1);
+        window.setTimeout(() => this.spawnShahed(), 6000 + Math.random() * 8000);
+      } else if (s.dead) {
+        s.dispose(this.scene);
+        this.shaheds.splice(i, 1);
+        window.setTimeout(() => this.spawnShahed(), 6000 + Math.random() * 8000);
+      }
+    }
+    if (this.shaheds.length === 0 && !this.dead) this.audio.shahedLoop(false);
+    this.tungRoarCd -= dt;
+    if (tung && this.tungRoarCd <= 0) {
+      this.tungRoarCd = 9 + Math.random() * 6;
+      this.audio.growlSting();
+      if (tungD < 40) this.showMessage('📢 ТУНГ! ТУНГ! ТУНГ! САХУР!', 2.2);
+    }
+    this.trickleT -= dt;
+    if (this.trickleT <= 0) {
+      this.trickleT = 22;
+      if (this.brainrots.filter((b) => !b.dead).length < 9) {
+        const kinds: BrKind[] = ['trala', 'cappu', 'lirili', 'baller', 'bomba'];
+        const k = kinds[Math.floor(Math.random() * kinds.length)];
+        const a = Math.random() * Math.PI * 2;
+        this.brainrots.push(new Brainrot(k, this.pos.x + Math.cos(a) * 60, this.pos.z + Math.sin(a) * 60, this.scene));
+      }
+    }
+    if (this.tung && this.tung.dead) {
+      this.tungRespawnT -= dt;
+      if (this.tungRespawnT <= 0) {
+        this.tungRespawnT = 60;
+        const a = Math.random() * Math.PI * 2;
+        this.tung = new Brainrot('tung', this.pos.x + Math.cos(a) * 55, this.pos.z + Math.sin(a) * 55, this.scene);
+        this.brainrots.push(this.tung);
+        this.showMessage('🪵 ТУНГ ТУНГ САХУР ПОВЕРНУВСЯ! ВІН НЕЗНИЩЕННИЙ!', 4);
+        this.audio.growlSting();
+      }
+    }
+  }
+
+  private onTungDeath(): void {
+    this.tungRespawnT = 60;
+    this.reserve += 120;
+    this.showMessage('🪵 САХУР ПОВАЛЕНИЙ! +120 набоїв. Але він повернеться…', 4);
+  }
+
+  private brainrotVictory(): void {
+    this.victory = true;
+    this.stationDone = true;
+    this.audio.musicStop();
+    this.audio.shahedLoop(false);
+    this.audio.carEngine(false);
+    this.audio.missionOk();
+    this.objective = { title: '🧠 МИКОЛА ВТІК!', detail: `Рахунок: ${this.score}. Тунг Тунг Сахур залишився ні з чим!`, progress: '' };
+    this.showMessage(`ВААААУ! ПЕРЕМОГА! Рахунок: ${this.score}`, 6);
+  }
+
+  private addScore(n: number, msg: string): void {
+    this.score += n;
+    this.showMessage(msg, 1.8);
+    this.audio.checkpoint();
+  }
+
+  // ---------------- GTA driving ----------------
+  private driveCars(): THREE.Group[] {
+    return (this.zone?.group.userData.driveCars as THREE.Group[] | undefined) ?? [];
+  }
+
+  private tryEnterCar(): boolean {
+    if (!this.zone || this.car) return false;
+    for (const car of this.driveCars()) {
+      if (Math.hypot(car.position.x - this.pos.x, car.position.z - this.pos.z) < 3.5) {
+        this.car = car;
+        this.carYaw = car.rotation.y;
+        this.carSpeed = 0;
+        this.camDist = 8;
+        this.player.group.visible = false;
+        this.audio.carEngine(true);
+        this.audio.doorVan();
+        this.showMessage('МИКОЛА ЗА КЕРМОМ! WASD — їхати, E — вийти', 3);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private exitCar(z: ZoneData): void {
+    if (!this.car) return;
+    const car = this.car;
+    this.pos.set(car.position.x + Math.cos(this.carYaw) * 2.4, 0, car.position.z - Math.sin(this.carYaw) * 2.4);
+    resolveCollision(this.pos, 0.45, z.colliders);
+    this.car = null;
+    this.carSpeed = 0;
+    this.moveSpeed = 0;
+    this.camDist = 4.4;
+    this.player.group.visible = true;
+    this.player.group.position.copy(this.pos);
+    this.audio.carEngine(false);
+    this.audio.doorVan();
+  }
+
+  private updateCar(dt: number, z: ZoneData): void {
+    const car = this.car;
+    if (!car || this.dead) return;
+    const fwd = (this.keys.has('KeyW') ? 1 : 0) - (this.keys.has('KeyS') ? 1 : 0);
+    const steer = (this.keys.has('KeyA') ? 1 : 0) - (this.keys.has('KeyD') ? 1 : 0);
+    this.carSpeed += fwd * 26 * dt;
+    this.carSpeed -= this.carSpeed * 1.6 * dt;
+    this.carSpeed = THREE.MathUtils.clamp(this.carSpeed, -9, 24);
+    if (Math.abs(this.carSpeed) > 0.5) {
+      this.carYaw += steer * dt * 2.2 * Math.sign(this.carSpeed) * Math.min(1, Math.abs(this.carSpeed) / 6);
+    }
+    car.rotation.y = this.carYaw;
+    this.carTmp.set(
+      car.position.x + Math.sin(this.carYaw) * this.carSpeed * dt,
+      0,
+      car.position.z + Math.cos(this.carYaw) * this.carSpeed * dt,
+    );
+    resolveCollision(this.carTmp, 1.5, z.colliders);
+    const moved = Math.hypot(this.carTmp.x - car.position.x, this.carTmp.z - car.position.z);
+    const want = Math.abs(this.carSpeed) * dt;
+    car.position.x = THREE.MathUtils.clamp(this.carTmp.x, -z.bounds, z.bounds);
+    car.position.z = THREE.MathUtils.clamp(this.carTmp.z, -z.bounds, z.bounds);
+    if (want > 0.01 && moved < want * 0.3 && Math.abs(this.carSpeed) > 4) {
+      this.audio.thudLand();
+      this.shake = Math.min(1, this.shake + 0.5);
+      this.carSpeed *= -0.25;
+      this.spawnParticles(car.position.x, 1, car.position.z, 8, '#555550', 3, 0.6);
+    }
+    this.pos.copy(car.position);
+    this.audio.carRpm(Math.abs(this.carSpeed) / 24);
+    this.moveSpeed = Math.abs(this.carSpeed);
+    if (this.tung && !this.tung.dead && Math.hypot(this.tung.pos.x - car.position.x, this.tung.pos.z - car.position.z) < 3.4) {
+      this.carSpeed *= -0.4;
+      this.shake = 1;
+      this.audio.thudLand();
+      this.audio.growlSting();
+      this.showMessage('🪵 ТУНГ ТУНГ РОЗТРОЩИВ ТАЧКУ!', 2);
+    }
+    this.runOverCheck();
+    if (this.keys.has('KeyR')) this.startReload();
+    if (this.keys.has('KeyE') && !this.eHeld) {
+      this.eHeld = true;
+      this.exitCar(z);
+    }
+  }
+
+  private runOverCheck(): void {
+    if (!this.car || Math.abs(this.carSpeed) < 4) return;
+    const cx = this.car.position.x;
+    const cz = this.car.position.z;
+    const hitFx = (x: number, z: number): void => {
+      this.spawnParticles(x, 0.8, z, 10, '#7a1a1a', 4, 0.7);
+      this.audio.thudLand();
+      this.shake = Math.min(1, this.shake + 0.3);
+    };
+    for (const c of this.civilians) {
+      if (c.dead) continue;
+      if (Math.hypot(c.pos.x - cx, c.pos.z - cz) < 2.2) {
+        c.dead = true;
+        c.state = 'hide';
+        c.humanoid.group.position.copy(c.pos);
+        c.humanoid.setPose('down', 0, 0);
+        hitFx(c.pos.x, c.pos.z);
+        this.addScore(100, 'ПІШОХОД ЗБИТИЙ! +100');
+      }
+    }
+    for (const b of this.brainrots) {
+      if (b.dead || b.kind === 'tung' || b.kind === 'bomba') continue;
+      if (Math.hypot(b.pos.x - cx, b.pos.z - cz) < 2.4) {
+        b.damage(9999);
+        hitFx(b.pos.x, b.pos.z);
+        this.addScore(b.score, `${b.label} РОЗЧАВЛЕНИЙ! +${b.score}`);
+        this.burstFx(b.pos);
+      }
+    }
+    for (const v of this.vloggers) {
+      if (v.dead) continue;
+      if (Math.hypot(v.pos.x - cx, v.pos.z - cz) < 2.2) {
+        v.kill();
+        hitFx(v.pos.x, v.pos.z);
+        this.addScore(500, `${VLOG_NAME[v.kind]} ЗБИТИЙ! +500 (ГАНЬБА!)`);
+      }
+    }
+  }
+
   // ================================================================ interact (city)
   private eCityInteract(): void {
     if (!this.zone || this.eHeld) return;
+    if (this.brainrotMode && !this.car && this.tryEnterCar()) {
+      this.eHeld = true;
+      return;
+    }
     // pickups
     for (const p of this.zone.pickups) {
       if (p.taken) continue;
@@ -1743,6 +2131,10 @@ export class Game {
       const d = Math.hypot(this.pos.x - 8.5, this.pos.z + 24);
       if (d < 3) {
         this.eHeld = true;
+        if (this.brainrotMode) {
+          this.brainrotVictory();
+          return;
+        }
         this.stationDone = true;
         this.scriptedFinalCheck();
       }
@@ -1919,6 +2311,10 @@ export class Game {
   // ---------------- player movement ----------------
   private updatePlayer(dt: number, z: ZoneData, canShoot: boolean): void {
     void canShoot;
+    if (this.car) {
+      this.updateCar(dt, z);
+      return;
+    }
     if (this.dead) {
       this.anim = 'down';
       this.player.setPose('down', 0, 0);
@@ -2045,6 +2441,7 @@ export class Game {
   private updateCity(dt: number, z: ZoneData): void {
     this.cityT += dt;
     this.updatePlayer(dt, z, false);
+    if (this.brainrotMode) this.updateBrainrot(dt, z);
     if (!this.van) return;
 
     const vDist = Math.hypot(this.pos.x - this.van.pos.x, this.pos.z - this.van.pos.z);
@@ -2198,6 +2595,13 @@ export class Game {
         this.audio.siren();
         this.objective = { title: 'Розшук', detail: 'Патрулі шукають саме вас. Дістаньтеся зупинки', progress: '' };
       }
+    }
+    if (this.brainrotMode && !this.car) {
+      for (const car of this.driveCars()) {
+        if (Math.hypot(this.pos.x - car.position.x, this.pos.z - car.position.z) < 3.5) this.prompt = '[E] — сісти в авто';
+      }
+    } else if (this.car) {
+      this.prompt = '[E] — вийти з авто';
     }
     // pickup prompt
     for (const p of z.pickups) {
@@ -2518,6 +2922,8 @@ export class Game {
       dialogOptions: [...this.dialogOptions],
       hurtT: this.hurtT,
       fade: this.fade,
+      score: this.score,
+      tungNear: this.tung !== null && !this.tung.dead && Math.hypot(this.tung.pos.x - this.pos.x, this.tung.pos.z - this.pos.z) < 35,
     };
     this.opts.onHud(hud);
   }

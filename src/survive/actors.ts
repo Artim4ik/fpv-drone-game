@@ -2,7 +2,7 @@
 // GREY CORRIDOR — procedural humanoids + NPC AI state machines
 // ============================================================
 import * as THREE from 'three';
-import { camoTexture, faceTexture, flannelTexture, jacketTexture, vestTexture } from './textures';
+import { camoTexture, faceTexture, flannelTexture, jacketTexture, vestTexture, brainrotTexture, type BrainrotKind } from './textures';
 import { resolveCollision, losBlocked, type BoxCollider } from './world';
 import { findNavPath, type NavGrid } from './astar';
 import type { AnimState, ModelKind } from './types';
@@ -481,6 +481,7 @@ export class Civilian {
   turnSm = 0;
   nav: NavGrid | null = null;
   follower = makeFollower();
+  dead = false;
   private seed: number;
 
   constructor(loop: THREE.Vector3[], seed: number, scene: THREE.Object3D, post: THREE.Vector3 | null = null) {
@@ -505,6 +506,7 @@ export class Civilian {
   }
 
   update(dt: number, t: number, danger: THREE.Vector3 | null, gunshot: boolean, colliders: BoxCollider[]): void {
+    if (this.dead) return;
     this.stateT += dt;
     const hd = this.humanoid;
     let moving = 0;
@@ -912,5 +914,278 @@ export class FootPatrol {
 
   dispose(parent: THREE.Object3D): void {
     for (const g of this.guards) parent.remove(g.group);
+  }
+}
+
+// ============================================================ brainrot chase mode
+/** Anything the rifle can kill for score. */
+export interface Shootable {
+  damage(amount: number): boolean;
+  readonly dead: boolean;
+  readonly score: number;
+  readonly label: string;
+}
+
+export type BrKind = 'tung' | 'trala' | 'bomba' | 'cappu' | 'lirili' | 'baller' | 'huggy';
+
+export interface BrCfg {
+  hp: number;
+  speed: number;
+  dmg: number;
+  w: number;
+  h: number;
+  score: number;
+  fly: number;
+  range: number;
+  label: string;
+}
+
+export const BR_CFG: Record<BrKind, BrCfg> = {
+  tung: { hp: 900, speed: 6.0, dmg: 25, w: 2.0, h: 2.7, score: 5000, fly: 0, range: 3.0, label: 'ТУНГ ТУНГ САХУР' },
+  trala: { hp: 120, speed: 6.4, dmg: 12, w: 1.5, h: 1.9, score: 150, fly: 0, range: 1.8, label: 'Тралалеро' },
+  bomba: { hp: 100, speed: 7.5, dmg: 30, w: 1.8, h: 1.8, score: 300, fly: 8, range: 0, label: 'Бомбардіро' },
+  cappu: { hp: 80, speed: 6.8, dmg: 8, w: 1.2, h: 1.5, score: 120, fly: 0, range: 1.7, label: 'Капучино' },
+  lirili: { hp: 320, speed: 3.4, dmg: 18, w: 1.7, h: 2.1, score: 250, fly: 0, range: 2.2, label: 'Лірілі' },
+  baller: { hp: 90, speed: 5.6, dmg: 10, w: 1.3, h: 1.6, score: 150, fly: 0, range: 1.8, label: 'Балеріна' },
+  huggy: { hp: 260, speed: 4.6, dmg: 20, w: 1.3, h: 2.6, score: 400, fly: 0, range: 2.0, label: 'ХАГІ-БАГІ' },
+};
+
+const brTexCache = new Map<string, THREE.Texture>();
+function brTex(kind: BrainrotKind): THREE.Texture {
+  let t = brTexCache.get(kind);
+  if (!t) {
+    t = brainrotTexture(kind);
+    brTexCache.set(kind, t);
+  }
+  return t;
+}
+
+export class Brainrot implements Shootable {
+  sprite: THREE.Sprite;
+  pos = new THREE.Vector3();
+  kind: BrKind;
+  hp: number;
+  dead = false;
+  atkCd = 0;
+  bombT = 4;
+  dashT = 0;
+  spin = 0;
+  hurtT = 0;
+  seedPhase = Math.random() * 6.28;
+  follower = makeFollower();
+
+  constructor(kind: BrKind, x: number, z: number, parent: THREE.Object3D) {
+    this.kind = kind;
+    const cfg = BR_CFG[kind];
+    this.hp = cfg.hp;
+    this.sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: brTex(kind), transparent: true, depthWrite: false }));
+    this.sprite.scale.set(cfg.w, cfg.h, 1);
+    this.pos.set(x, kind === 'bomba' ? cfg.fly : 0, z);
+    this.sprite.position.copy(this.pos);
+    parent.add(this.sprite);
+  }
+
+  get score(): number {
+    return BR_CFG[this.kind].score;
+  }
+
+  get label(): string {
+    return BR_CFG[this.kind].label;
+  }
+
+  damage(amount: number): boolean {
+    if (this.dead) return true;
+    this.hp -= amount;
+    this.hurtT = 0.12;
+    (this.sprite.material as THREE.SpriteMaterial).color.set('#ff4444');
+    if (this.hp <= 0) {
+      this.dead = true;
+      this.sprite.visible = false;
+      return true;
+    }
+    return false;
+  }
+
+  update(dt: number, t: number, target: THREE.Vector3, colliders: BoxCollider[], nav: NavGrid | null): void {
+    if (this.dead) return;
+    const cfg = BR_CFG[this.kind];
+    this.atkCd -= dt;
+    if (this.hurtT > 0) {
+      this.hurtT -= dt;
+      if (this.hurtT <= 0) (this.sprite.material as THREE.SpriteMaterial).color.set('#ffffff');
+    }
+    if (this.kind === 'bomba') {
+      this.bombT -= dt;
+      const a = t * 0.7 + this.seedPhase;
+      const wx = target.x + Math.cos(a) * 14;
+      const wz = target.z + Math.sin(a) * 14;
+      const wy = cfg.fly + Math.sin(t * 1.3 + this.seedPhase) * 1.5;
+      this.pos.x += (wx - this.pos.x) * Math.min(1, dt * 1.5);
+      this.pos.y += (wy - this.pos.y) * Math.min(1, dt * 1.5);
+      this.pos.z += (wz - this.pos.z) * Math.min(1, dt * 1.5);
+      this.sprite.position.copy(this.pos);
+      return;
+    }
+    if (this.kind === 'baller') {
+      this.spin += dt * 9;
+      (this.sprite.material as THREE.SpriteMaterial).rotation = this.spin;
+    }
+    let sp = cfg.speed;
+    if (this.kind === 'trala') {
+      this.dashT -= dt;
+      if (this.dashT < -2) this.dashT = 1.2;
+      sp = this.dashT > 0 ? cfg.speed * 1.6 : cfg.speed * 0.6;
+    }
+    if (this.kind === 'tung' && this.hp < BR_CFG.tung.hp * 0.3) sp *= 1.25;
+    followPath(this.follower, this.pos, target, sp, dt, colliders, nav);
+    this.sprite.position.set(this.pos.x, cfg.h / 2 + Math.abs(Math.sin(t * 6 + this.seedPhase)) * (this.kind === 'tung' ? 0.15 : 0.25), this.pos.z);
+  }
+
+  dispose(parent: THREE.Object3D): void {
+    parent.remove(this.sprite);
+  }
+}
+
+export type VlogKind = 'vlad' | 'beast' | 'glasha';
+export const VLOG_NAME: Record<VlogKind, string> = { vlad: 'ВЛАД Б4', beast: 'МІСТЕР ЗВІР', glasha: 'БАБА ГЛАША' };
+export const VLOG_SONG: Record<VlogKind, string> = { vlad: '«Б4-ХІТ»', beast: '«$$$ ФОНК»', glasha: '«Пиріжки»' };
+
+export class Vlogger {
+  sprite: THREE.Sprite;
+  pos = new THREE.Vector3();
+  kind: VlogKind;
+  dead = false;
+  giftT = 10;
+  wanderT = 0;
+  wanderTarget = new THREE.Vector3();
+  seedPhase = Math.random() * 6.28;
+  follower = makeFollower();
+
+  constructor(kind: VlogKind, x: number, z: number, parent: THREE.Object3D) {
+    this.kind = kind;
+    this.sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: brTex(kind), transparent: true, depthWrite: false }));
+    this.sprite.scale.set(1.1, 1.45, 1);
+    this.pos.set(x, 0, z);
+    this.wanderTarget.copy(this.pos);
+    this.sprite.position.copy(this.pos);
+    parent.add(this.sprite);
+  }
+
+  kill(): void {
+    this.dead = true;
+    this.sprite.visible = false;
+  }
+
+  update(dt: number, t: number, tungPos: THREE.Vector3 | null, colliders: BoxCollider[], nav: NavGrid | null): void {
+    if (this.dead) return;
+    this.wanderT -= dt;
+    this.giftT -= dt;
+    if (this.wanderT <= 0) {
+      this.wanderT = 3 + Math.random() * 3;
+      if (tungPos && this.pos.distanceTo(tungPos) < 20) {
+        this.wanderTarget.set(this.pos.x + (this.pos.x - tungPos.x), 0, this.pos.z + (this.pos.z - tungPos.z));
+      } else {
+        this.wanderTarget.set(this.pos.x + (Math.random() - 0.5) * 30, 0, this.pos.z + (Math.random() - 0.5) * 30);
+      }
+    }
+    followPath(this.follower, this.pos, this.wanderTarget, 2.2, dt, colliders, nav);
+    this.sprite.position.set(this.pos.x, 0.72 + Math.abs(Math.sin(t * 5 + this.seedPhase)) * 0.12, this.pos.z);
+  }
+
+  dispose(parent: THREE.Object3D): void {
+    parent.remove(this.sprite);
+  }
+}
+
+export class Shahed implements Shootable {
+  group: THREE.Group;
+  pos = new THREE.Vector3();
+  target = new THREE.Vector3();
+  hp = 60;
+  dead = false;
+  diving = false;
+  seedPhase = Math.random() * 6.28;
+
+  constructor(x: number, y: number, z: number, parent: THREE.Object3D) {
+    this.group = new THREE.Group();
+    const mat = new THREE.MeshStandardMaterial({ color: '#9a938a', roughness: 0.7 });
+    const dark = new THREE.MeshStandardMaterial({ color: '#5c5850', roughness: 0.8 });
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 2.2), mat);
+    const wingGeo = new THREE.BoxGeometry(2.0, 0.08, 1.0);
+    const wl = new THREE.Mesh(wingGeo, mat);
+    wl.position.set(-0.9, 0, -0.5);
+    wl.rotation.y = 0.5;
+    const wr = new THREE.Mesh(wingGeo, mat);
+    wr.position.set(0.9, 0, -0.5);
+    wr.rotation.y = -0.5;
+    const fin = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.7, 0.8), dark);
+    fin.position.set(0, 0.4, -0.9);
+    const prop = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.06, 0.06), dark);
+    prop.position.set(0, 0, 1.15);
+    this.group.add(body, wl, wr, fin, prop);
+    this.group.userData.prop = prop;
+    this.pos.set(x, y, z);
+    this.group.position.copy(this.pos);
+    parent.add(this.group);
+  }
+
+  get score(): number {
+    return 300;
+  }
+
+  get label(): string {
+    return 'Шахед';
+  }
+
+  damage(amount: number): boolean {
+    if (this.dead) return true;
+    this.hp -= amount;
+    if (this.hp <= 0) {
+      this.dead = true;
+      this.group.visible = false;
+      return true;
+    }
+    return false;
+  }
+
+  /** Returns 'dive' once when the dive starts, 'boom' on ground impact. */
+  update(dt: number, t: number): 'dive' | 'boom' | null {
+    if (this.dead) return null;
+    (this.group.userData.prop as THREE.Object3D).rotation.z = t * 40;
+    if (!this.diving) {
+      const dx = this.target.x - this.pos.x;
+      const dz = this.target.z - this.pos.z;
+      const d = Math.hypot(dx, dz);
+      const sp = 16 * dt;
+      if (d < 7) {
+        this.diving = true;
+        return 'dive';
+      }
+      this.pos.x += (dx / Math.max(d, 0.01)) * sp;
+      this.pos.z += (dz / Math.max(d, 0.01)) * sp;
+      this.pos.y += (26 + Math.sin(t + this.seedPhase) * 2 - this.pos.y) * Math.min(1, dt);
+      this.group.rotation.set(0, Math.atan2(dx, dz), 0);
+    } else {
+      const dx = this.target.x - this.pos.x;
+      const dy = 0.5 - this.pos.y;
+      const dz = this.target.z - this.pos.z;
+      const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      const sp = Math.min(d, 30 * dt);
+      this.pos.x += (dx / Math.max(d, 0.01)) * sp;
+      this.pos.y += (dy / Math.max(d, 0.01)) * sp;
+      this.pos.z += (dz / Math.max(d, 0.01)) * sp;
+      this.group.rotation.set(0.9, Math.atan2(dx, dz), 0);
+      if (this.pos.y <= 1) {
+        this.dead = true;
+        this.group.visible = false;
+        return 'boom';
+      }
+    }
+    this.group.position.copy(this.pos);
+    return null;
+  }
+
+  dispose(parent: THREE.Object3D): void {
+    parent.remove(this.group);
   }
 }

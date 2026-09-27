@@ -15,7 +15,7 @@ export interface HudViewProps {
   paused: boolean;
   started: boolean;
   playerName: string;
-  onStart: (name: string, quality: Quality) => void;
+  onStart: (name: string, quality: Quality, brainrot: boolean) => void;
   onResume: () => void;
   onExit: () => void;
   onToggleWallet: () => void;
@@ -152,7 +152,7 @@ function ChatBox({ chat, onSend }: { chat: ChatMsg[]; onSend: (t: string) => voi
   );
 }
 
-function Briefing({ onStart }: { onStart: (name: string, q: Quality) => void }) {
+function Briefing({ onStart }: { onStart: (name: string, q: Quality, brainrot: boolean) => void }) {
   const [name, setName] = useState(() => {
     try {
       return localStorage.getItem('grey_name') ?? '';
@@ -196,10 +196,19 @@ function Briefing({ onStart }: { onStart: (name: string, q: Quality) => void }) 
             } catch {
               /* ignore */
             }
-            onStart(name || 'Мандрівник', q);
+            onStart(name || 'Мандрівник', q, false);
           }}
         >
           ПОЧАТИ ГРУ
+        </button>
+        <button
+          className="gc-launch gc-launch--brainrot"
+          type="button"
+          onClick={() => {
+            onStart('Микола', q, true);
+          }}
+        >
+          🧠 ПОБІГ МИКОЛИ (GTA)
         </button>
         <div className="gc-controls">
           <div><b>WASD</b><span>рух</span></div>
@@ -262,6 +271,12 @@ export default function HudView(props: HudViewProps) {
         <span>{hud.objective.detail}</span>
         {hud.objective.progress && <b>{hud.objective.progress}</b>}
       </div>
+      {(hud.score > 0 || hud.tungNear) && (
+        <div className="gc-score">
+          <span>РАХУНОК <b>{hud.score}</b></span>
+          {hud.tungNear && <strong className="gc-tung">🪵 ТУНГ ТУНГ САХУР ПОРУЧ!</strong>}
+        </div>
+      )}
 
       <div className="gc-right">
         <Minimap hud={hud} />
@@ -385,6 +400,7 @@ export default function HudView(props: HudViewProps) {
             <div>Рух <b>{hud.stats.movement}</b></div>
             <div>Реакція <b>{hud.stats.reaction}</b></div>
             <div>Документів <b>{hud.docCount}</b></div>
+            {hud.score > 0 && <div>Рахунок <b>{hud.score}</b></div>}
           </div>
           <div className="gc-row">
             <button type="button" onClick={() => window.location.reload()}>ГРАТИ ЗНОВУ</button>

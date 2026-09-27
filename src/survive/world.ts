@@ -1219,6 +1219,27 @@ function buildCity(): ZoneData {
     }
   }
 
+  // drivable GTA cars (brainrot mode) — no static collider, driving collides dynamically
+  {
+    const spots: Array<[number, number, number]> = [[8, 34, 0.2], [-4, 44, -0.3], [12, 48, 1.6], [-10, 28, 2.8]];
+    const driveCars: THREE.Group[] = [];
+    for (const [ix, iz, ry] of spots) {
+      const [cx, cz] = nudgeFree(ix, iz, 3);
+      const car = buildCar(false);
+      car.position.set(cx, 0, cz);
+      car.rotation.y = ry;
+      for (const sd of [-1, 1]) {
+        const hg = new THREE.Sprite(headGlowMat);
+        hg.scale.set(0.9, 0.9, 1);
+        hg.position.set(sd * 0.6, 0.7, 2.2);
+        car.add(hg);
+      }
+      group.add(car);
+      driveCars.push(car);
+    }
+    group.userData.driveCars = driveCars;
+  }
+
   // transformer substation booth
   {
     const [tx, tz] = nudgeFree(40, -40, 2.4);

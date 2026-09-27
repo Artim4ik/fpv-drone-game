@@ -26,11 +26,12 @@ export default function SurviveScene({ onExit }: { onExit: () => void }) {
     setWalletOpen((v) => !v);
   }, []);
 
-  const handleStart = useCallback((name: string, quality: Quality) => {
+  const handleStart = useCallback((name: string, quality: Quality, brainrot: boolean) => {
     if (!mountRef.current || gameRef.current) return;
     const game = new Game(mountRef.current, {
       name,
       quality,
+      brainrot,
       onHud: (h) => setHud(h),
       onDocs: (d) => setDocs(d),
       onChat: (c) => setChat(c),

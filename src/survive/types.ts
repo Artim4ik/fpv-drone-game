@@ -158,6 +158,8 @@ export interface HudSnapshot {
   prompt: string | null;
   dialogOptions: string[];
   hurtT: number;
+  score: number;
+  tungNear: boolean;
   fade: 'none' | 'out' | 'in';
 }
 

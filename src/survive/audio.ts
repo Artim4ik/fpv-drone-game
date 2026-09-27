@@ -731,6 +731,233 @@ export class AudioEngine {
     else this.thump(0.35, 40);
   }
 
+  // ---------------- brainrot music (original synth songs) ----------------
+  private musicTimer: number | null = null;
+  private musicKind: string | null = null;
+  private musicStep = 0;
+  private noiseBuf: AudioBuffer | null = null;
+  private shaNodes: AudioNode[] | null = null;
+  private carOsc: OscillatorNode[] = [];
+  private carGain: GainNode | null = null;
+  private carFilter: BiquadFilterNode | null = null;
+
+  musicNow(): string | null {
+    return this.musicTimer !== null ? this.musicKind : null;
+  }
+
+  /** Original sequenced songs: tung (chase) / vlad (pop) / beast (phonk) / glasha (waltz). */
+  musicPlay(kind: 'tung' | 'vlad' | 'beast' | 'glasha'): void {
+    if (this.musicKind === kind && this.musicTimer !== null) return;
+    this.musicStop();
+    if (!this.ctx || !this.master) return;
+    this.musicKind = kind;
+    this.musicStep = 0;
+    const tick = (): void => {
+      if (!this.ctx || !this.master || this.musicKind !== kind) return;
+      this.playStep(kind, this.musicStep);
+      this.musicStep = (this.musicStep + 1) % 32;
+    };
+    tick();
+    this.musicTimer = window.setInterval(tick, (60 / 142 / 2) * 1000);
+  }
+
+  musicStop(): void {
+    if (this.musicTimer !== null) {
+      window.clearInterval(this.musicTimer);
+      this.musicTimer = null;
+    }
+    this.musicKind = null;
+  }
+
+  private tone(midi: number, dur: number, vol: number, type: OscillatorType, slideTo?: number): void {
+    if (!this.ctx || !this.master || this.muted) return;
+    try {
+      const t = this.ctx.currentTime;
+      const o = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      o.type = type;
+      o.frequency.setValueAtTime(440 * Math.pow(2, (midi - 69) / 12), t);
+      if (slideTo !== undefined) o.frequency.exponentialRampToValueAtTime(Math.max(20, 440 * Math.pow(2, (slideTo - 69) / 12)), t + dur);
+      g.gain.setValueAtTime(vol, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+      o.connect(g).connect(this.master);
+      o.start(t);
+      o.stop(t + dur + 0.02);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  private kick(vol: number): void {
+    if (!this.ctx || !this.master || this.muted) return;
+    try {
+      const t = this.ctx.currentTime;
+      const o = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(130, t);
+      o.frequency.exponentialRampToValueAtTime(42, t + 0.14);
+      g.gain.setValueAtTime(vol, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
+      o.connect(g).connect(this.master);
+      o.start(t);
+      o.stop(t + 0.2);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  private hat(vol: number): void {
+    if (!this.ctx || !this.master || this.muted) return;
+    try {
+      if (!this.noiseBuf) {
+        const len = this.ctx.sampleRate * 0.05;
+        this.noiseBuf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
+        const d = this.noiseBuf.getChannelData(0);
+        for (let i = 0; i < len; i++) d[i] = (Math.random() - 0.5) * 2;
+      }
+      const t = this.ctx.currentTime;
+      const src = this.ctx.createBufferSource();
+      src.buffer = this.noiseBuf;
+      const f = this.ctx.createBiquadFilter();
+      f.type = 'highpass';
+      f.frequency.value = 6000;
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(vol, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
+      src.connect(f).connect(g).connect(this.master);
+      src.start(t);
+      src.stop(t + 0.06);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  private playStep(kind: string, s: number): void {
+    if (kind === 'tung') {
+      // ТУНГ-ТУНГ-ТУНГ-САХУР chase: pounding kick + D-minor bass + stab
+      if (s % 8 === 0 || s % 8 === 3 || s % 8 === 6) this.kick(0.5);
+      if (s % 2 === 0) this.tone(38 + [0, 0, 3, 0, 5, 0, 3, 2][(s / 2) % 8], 0.18, 0.16, 'sawtooth');
+      if (s === 0 || s === 11 || s === 16 || s === 27) this.tone(62, 0.12, 0.1, 'square', 58);
+      if (s % 4 === 2) this.hat(0.05);
+    } else if (kind === 'vlad') {
+      // B4-HIT vlog pop: bouncy C-major
+      if (s % 4 === 0) this.kick(0.35);
+      if (s % 2 === 0) this.tone(48 + [0, 7, 4, 7, 5, 7, 4, 2][(s / 2) % 8], 0.16, 0.12, 'square');
+      if (s % 8 === 4) this.tone(72, 0.2, 0.09, 'triangle', 76);
+      if (s % 2 === 1) this.hat(0.04);
+    } else if (kind === 'beast') {
+      // $$$ phonk: cowbell + deep bass
+      if (s % 8 === 0 || s % 8 === 5) this.kick(0.4);
+      if (s % 16 === 4 || s % 16 === 10 || s % 16 === 13) this.tone(86, 0.1, 0.08, 'square');
+      if (s % 4 === 0) this.tone(33, 0.3, 0.2, 'sine', 31);
+      if (s % 2 === 0) this.hat(0.03);
+    } else {
+      // glasha waltz: oom-pah-pah
+      const bar = Math.floor(s / 3) % 2;
+      if (s % 3 === 0) this.tone(bar ? 45 : 41, 0.3, 0.15, 'triangle');
+      else this.tone(bar ? 69 : 65, 0.14, 0.07, 'square');
+      if (s % 6 === 0) this.tone(77, 0.4, 0.05, 'sine');
+    }
+  }
+
+  /** Shahed engine buzz loop. */
+  shahedLoop(on: boolean): void {
+    if (!this.ctx || !this.master) return;
+    if (this.shaNodes) {
+      for (const n of this.shaNodes) {
+        try {
+          (n as OscillatorNode).stop?.();
+        } catch {
+          /* ignore */
+        }
+        try {
+          n.disconnect();
+        } catch {
+          /* ignore */
+        }
+      }
+      this.shaNodes = null;
+    }
+    if (!on) return;
+    try {
+      const o = this.ctx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.value = 82;
+      const f = this.ctx.createBiquadFilter();
+      f.type = 'lowpass';
+      f.frequency.value = 420;
+      const g = this.ctx.createGain();
+      g.gain.value = 0.045;
+      const lfo = this.ctx.createOscillator();
+      lfo.type = 'sine';
+      lfo.frequency.value = 13;
+      const lg = this.ctx.createGain();
+      lg.gain.value = 0.02;
+      lfo.connect(lg).connect(g.gain);
+      o.connect(f).connect(g).connect(this.master);
+      o.start();
+      lfo.start();
+      this.shaNodes = [o, lfo, g];
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** Shahed dive whistle. */
+  shahedWhistle(): void {
+    this.tone(92, 1.0, 0.14, 'sine', 68);
+  }
+
+  /** Player car engine. */
+  carEngine(on: boolean): void {
+    if (!this.ctx || !this.master) return;
+    for (const o of this.carOsc) {
+      try {
+        o.stop();
+      } catch {
+        /* ignore */
+      }
+    }
+    this.carOsc = [];
+    this.carGain = null;
+    this.carFilter = null;
+    if (!on) return;
+    try {
+      const o1 = this.ctx.createOscillator();
+      o1.type = 'sawtooth';
+      o1.frequency.value = 55;
+      const o2 = this.ctx.createOscillator();
+      o2.type = 'square';
+      o2.frequency.value = 27;
+      const f = this.ctx.createBiquadFilter();
+      f.type = 'lowpass';
+      f.frequency.value = 300;
+      const g = this.ctx.createGain();
+      g.gain.value = 0.04;
+      o1.connect(f);
+      o2.connect(f);
+      f.connect(g).connect(this.master);
+      o1.start();
+      o2.start();
+      this.carOsc = [o1, o2];
+      this.carGain = g;
+      this.carFilter = f;
+    } catch {
+      /* ignore */
+    }
+  }
+
+  carRpm(r: number): void {
+    if (!this.ctx || this.carOsc.length < 2 || !this.carGain || !this.carFilter) return;
+    const t = this.ctx.currentTime;
+    const k = Math.max(0, Math.min(1, r));
+    this.carOsc[0].frequency.setTargetAtTime(55 + k * 110, t, 0.1);
+    this.carOsc[1].frequency.setTargetAtTime(27 + k * 55, t, 0.1);
+    this.carFilter.frequency.setTargetAtTime(300 + k * 900, t, 0.1);
+    this.carGain.gain.setTargetAtTime(this.muted ? 0 : 0.04 + k * 0.05, t, 0.1);
+  }
+
   /** Night ambience bed (real loop). */
   nightLoop(on: boolean): void {
     if (!this.ctx || !this.master) return;

@@ -656,3 +656,194 @@ export function awningTexture(c1 = '#a8352c', c2 = '#e8e2d2'): THREE.Texture {
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   return t;
 }
+
+// ---------------- brainrot parody portraits (original pixel art) ----------------
+export type BrainrotKind = 'tung' | 'trala' | 'bomba' | 'cappu' | 'lirili' | 'baller' | 'huggy' | 'vlad' | 'beast' | 'glasha';
+
+function px(g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, c: string): void {
+  g.fillStyle = c;
+  g.fillRect(x, y, w, h);
+}
+
+/** Original blocky portraits for the brainrot-chase mode (96x128). */
+export function brainrotTexture(kind: BrainrotKind): THREE.CanvasTexture {
+  const [c, g] = canvas(96, 128);
+  g.clearRect(0, 0, 96, 128);
+  const eye = (x: number, y: number, angry: boolean): void => {
+    px(g, x, y, 10, 12, '#ffffff');
+    px(g, x + (angry ? 5 : 2), y + 5, 5, 6, '#101010');
+    if (angry) {
+      px(g, x - 2, y - 4, 14, 3, '#101010');
+    }
+  };
+  if (kind === 'tung') {
+    // wooden log + bat
+    px(g, 26, 14, 44, 100, '#6e4a26');
+    px(g, 26, 14, 8, 100, '#54371c');
+    px(g, 62, 14, 8, 100, '#54371c');
+    for (let y = 26; y < 108; y += 14) px(g, 30, y, 36, 2, '#54371c');
+    px(g, 26, 8, 44, 8, '#8a6134');
+    px(g, 30, 10, 36, 2, '#54371c');
+    eye(34, 40, true);
+    eye(54, 40, true);
+    px(g, 36, 66, 26, 10, '#2a1608');
+    px(g, 36, 66, 26, 3, '#ffffff');
+    px(g, 30, 100, 12, 14, '#3a2512');
+    px(g, 56, 100, 12, 14, '#3a2512');
+    g.save();
+    g.translate(70, 70);
+    g.rotate(-0.7);
+    px(g, -6, -44, 12, 44, '#c49a5a');
+    px(g, -4, 0, 8, 14, '#5c4526');
+    g.restore();
+  } else if (kind === 'trala') {
+    // shark with sneakers
+    px(g, 12, 44, 64, 34, '#7a8a99');
+    px(g, 12, 62, 64, 16, '#d8dce2');
+    px(g, 68, 52, 16, 10, '#7a8a99');
+    px(g, 4, 36, 12, 20, '#5c6a78');
+    px(g, 38, 28, 12, 18, '#5c6a78');
+    px(g, 20, 52, 8, 8, '#ffffff');
+    px(g, 22, 54, 4, 4, '#101010');
+    px(g, 24, 68, 34, 4, '#ffffff');
+    for (const lx of [20, 42, 60]) {
+      px(g, lx, 78, 8, 18, '#5c6a78');
+      px(g, lx - 3, 94, 16, 10, '#d83a3a');
+      px(g, lx - 3, 100, 16, 4, '#ffffff');
+    }
+  } else if (kind === 'bomba') {
+    // croc bomber plane
+    px(g, 18, 52, 60, 22, '#3f7a3a');
+    px(g, 18, 62, 60, 4, '#2c5a28');
+    px(g, 62, 56, 22, 12, '#3f7a3a');
+    px(g, 66, 64, 4, 5, '#ffffff');
+    px(g, 74, 64, 4, 5, '#ffffff');
+    px(g, 30, 44, 10, 10, '#ffffff');
+    px(g, 32, 46, 5, 5, '#101010');
+    px(g, 8, 74, 80, 10, '#6e5233');
+    px(g, 40, 20, 8, 34, '#6e5233');
+    px(g, 28, 12, 32, 6, '#9a9aa2');
+    px(g, 41, 4, 6, 22, '#9a9aa2');
+    px(g, 36, 84, 12, 14, '#2c2c30');
+  } else if (kind === 'cappu') {
+    // ninja coffee cup
+    px(g, 30, 34, 36, 12, '#101010');
+    px(g, 58, 28, 20, 8, '#101010');
+    px(g, 28, 46, 40, 48, '#d8b98a');
+    px(g, 28, 46, 40, 8, '#8a5a2a');
+    px(g, 64, 56, 10, 22, '#d8b98a');
+    eye(36, 58, true);
+    eye(52, 58, true);
+    px(g, 42, 80, 12, 3, '#101010');
+    px(g, 34, 94, 10, 16, '#3a3a3a');
+    px(g, 52, 94, 10, 16, '#3a3a3a');
+    px(g, 20, 60, 10, 26, '#c9c9c9');
+    px(g, 66, 78, 14, 6, '#c9c9c9');
+  } else if (kind === 'lirili') {
+    // cactus elephant
+    px(g, 14, 44, 18, 30, '#8a8a92');
+    px(g, 64, 44, 18, 30, '#8a8a92');
+    px(g, 28, 26, 40, 66, '#3f8a3f');
+    px(g, 28, 26, 40, 6, '#2c6a2c');
+    for (let y = 36; y < 86; y += 10) {
+      px(g, 32, y, 4, 4, '#1e4a1e');
+      px(g, 60, y + 4, 4, 4, '#1e4a1e');
+    }
+    eye(36, 44, false);
+    eye(52, 44, false);
+    px(g, 42, 60, 12, 32, '#8a8a92');
+    px(g, 40, 88, 16, 8, '#6a6a72');
+    px(g, 30, 92, 12, 14, '#6e4a26');
+    px(g, 54, 92, 12, 14, '#6e4a26');
+    px(g, 30, 102, 12, 4, '#3a2a18');
+    px(g, 54, 102, 12, 4, '#3a2a18');
+  } else if (kind === 'baller') {
+    // dancing cup ballerina
+    px(g, 36, 18, 24, 18, '#d8b98a');
+    px(g, 36, 14, 24, 6, '#f2e8d8');
+    px(g, 42, 4, 12, 10, '#ffd23a');
+    eye(40, 22, false);
+    eye(50, 22, false);
+    px(g, 46, 52, 4, 14, '#d8a184');
+    px(g, 20, 60, 56, 20, '#e88ab0');
+    px(g, 28, 76, 40, 8, '#c46a90');
+    px(g, 30, 40, 8, 22, '#d8a184');
+    px(g, 58, 40, 8, 22, '#d8a184');
+    px(g, 40, 84, 7, 24, '#d8a184');
+    px(g, 49, 84, 7, 24, '#d8a184');
+    px(g, 38, 106, 11, 6, '#e88ab0');
+    px(g, 47, 106, 11, 6, '#e88ab0');
+  } else if (kind === 'huggy') {
+    // tall blue hugger (parody)
+    px(g, 38, 20, 20, 20, '#2a4ad8');
+    px(g, 42, 24, 6, 8, '#ffffff');
+    px(g, 50, 24, 6, 8, '#ffffff');
+    px(g, 43, 26, 4, 4, '#101010');
+    px(g, 51, 26, 4, 4, '#101010');
+    px(g, 38, 32, 20, 6, '#8a1020');
+    px(g, 40, 32, 16, 2, '#ffffff');
+    px(g, 44, 40, 4, 8, '#d81a2a');
+    px(g, 38, 42, 6, 6, '#d81a2a');
+    px(g, 52, 42, 6, 6, '#d81a2a');
+    px(g, 36, 48, 24, 44, '#2a4ad8');
+    px(g, 42, 54, 12, 30, '#d8cfa8');
+    px(g, 14, 50, 10, 50, '#2a4ad8');
+    px(g, 72, 50, 10, 50, '#2a4ad8');
+    px(g, 12, 96, 14, 8, '#d8cfa8');
+    px(g, 70, 96, 14, 8, '#d8cfa8');
+    px(g, 38, 92, 8, 26, '#2a4ad8');
+    px(g, 50, 92, 8, 26, '#2a4ad8');
+  } else if (kind === 'vlad') {
+    // vlogger with cap + A4 paper
+    px(g, 28, 40, 40, 40, '#d8a184');
+    px(g, 28, 28, 40, 16, '#1a1a1a');
+    px(g, 60, 34, 16, 6, '#1a1a1a');
+    g.fillStyle = '#ffffff';
+    g.font = 'bold 13px Arial';
+    g.fillText('Б4', 38, 41);
+    eye(36, 52, false);
+    eye(52, 52, false);
+    px(g, 40, 68, 16, 4, '#7a3a2a');
+    px(g, 24, 80, 48, 40, '#2a6ad8');
+    px(g, 24, 80, 48, 8, '#1a4aa8');
+    px(g, 66, 70, 20, 28, '#f2f2f2');
+    px(g, 68, 76, 16, 2, '#9a9aa2');
+    px(g, 68, 82, 16, 2, '#9a9aa2');
+  } else if (kind === 'beast') {
+    // generous beast in black tee
+    px(g, 28, 36, 40, 30, '#d8a184');
+    px(g, 28, 58, 40, 22, '#5c3a22');
+    px(g, 40, 62, 16, 6, '#7a3a2a');
+    eye(36, 44, false);
+    eye(52, 44, false);
+    px(g, 24, 80, 48, 42, '#1a1a1a');
+    g.fillStyle = '#ffd23a';
+    g.font = 'bold 11px Arial';
+    g.fillText('ЗВІР', 33, 102);
+    px(g, 66, 84, 18, 22, '#3f7a3a');
+    g.fillStyle = '#ffffff';
+    g.font = 'bold 14px Arial';
+    g.fillText('$', 70, 100);
+  } else {
+    // glasha: grandma with selfie stick
+    px(g, 20, 30, 56, 14, '#c42a2a');
+    px(g, 20, 30, 10, 50, '#c42a2a');
+    px(g, 66, 30, 10, 50, '#c42a2a');
+    px(g, 30, 34, 6, 6, '#ffffff');
+    px(g, 60, 34, 6, 6, '#ffffff');
+    px(g, 32, 44, 32, 30, '#d8a184');
+    px(g, 36, 52, 8, 8, '#ffffff');
+    px(g, 52, 52, 8, 8, '#ffffff');
+    px(g, 38, 54, 4, 4, '#101010');
+    px(g, 54, 54, 4, 4, '#101010');
+    px(g, 40, 66, 16, 3, '#7a3a2a');
+    px(g, 24, 74, 48, 46, '#7a4a8a');
+    px(g, 68, 20, 5, 60, '#3a3a3a');
+    px(g, 60, 8, 20, 16, '#1a1a1a');
+    px(g, 62, 10, 16, 12, '#7ad2ff');
+  }
+  const t = toTexture(c);
+  t.magFilter = THREE.NearestFilter;
+  t.minFilter = THREE.NearestMipmapLinearFilter;
+  return t;
+}
